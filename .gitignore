@@ -1,0 +1,26 @@
+# Build output and generated copies
+build/
+.build/
+.gradle/
+*.apk
+*.aab
+PhoneBridge-Source.zip
+PhoneBridge-FullSource.txt
+
+# Local machine settings
+local.properties
+.vscode/
+.idea/
+.DS_Store
+*.log
+
+# Old Bluetooth experiment (contains test logs from a real phone)
+CallTest/
+
+# Keys and certificates — never commit these
+*.jks
+*.keystore
+*.p12
+*.pem
+.env
+.kotlin/

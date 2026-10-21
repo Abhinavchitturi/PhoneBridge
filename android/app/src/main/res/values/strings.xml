@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="typing_service_description">Lets your Mac control this phone: type into the selected text box, and tap/swipe/go back while you\'re viewing the phone on the Mac. It only acts when you use PhoneBridge on the Mac; it doesn\'t read or store what\'s on screen.</string>
+</resources>
