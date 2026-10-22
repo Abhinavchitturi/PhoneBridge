@@ -62,7 +62,10 @@ final class GuardLockModel: ObservableObject {
     func submit() {
         let code = input.trimmingCharacters(in: .whitespaces)
         input = ""
-        guard !code.isEmpty else { return }
+        guard !code.isEmpty else {
+            if touchIDAvailable { useTouchID() } // Return on an empty field asks for the fingerprint again
+            return
+        }
         let wait = Int(lockedOutUntil.timeIntervalSinceNow.rounded(.up))
         if wait > 0 { message = "Too many tries. Wait \(wait) s."; return }
         if verify(code) {
@@ -247,15 +250,7 @@ struct GuardLockView: View {
                 if !model.hint.isEmpty {
                     Text(model.hint).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.accent2)
                 }
-                if model.touchIDAvailable {
-                    Button { model.useTouchID() } label: {
-                        Label("Use Touch ID", systemImage: "touchid").font(.system(size: 15, weight: .semibold))
-                    }
-                    .buttonStyle(.plain).foregroundStyle(.white)
-                    .padding(.horizontal, 18).padding(.vertical, 9)
-                    .background(Capsule().fill(Color.white.opacity(0.14)))
-                }
-                Text("The saved recovery code works too.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.4))
+                Text(model.touchIDAvailable ? "Press Return to use Touch ID again. The saved recovery code works too." : "The saved recovery code works too.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.4))
                 if let left = model.testSecondsLeft {
                     Text("Test mode — this screen closes by itself in \(max(left, 0)) s")
                         .font(.system(size: 13, weight: .semibold)).foregroundStyle(.orange).padding(.top, 8)

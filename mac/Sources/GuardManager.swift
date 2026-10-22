@@ -218,28 +218,20 @@ final class IntruderGuard: ObservableObject {
         return false
     }
 
-    /// A small dialog asking for the unlock code, or Touch ID. Returns true if it was right.
+    /// Asks for Touch ID first; if that's cancelled or fails (or there's no Touch ID), a small dialog asks for the code.
     func askCode(_ title: String) -> Bool {
         NSApp.activate(ignoringOtherApps: true)
-        let canTouchID = LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
-        while true {
-            let alert = NSAlert()
-            alert.messageText = title
-            alert.informativeText = canTouchID ? "Use Touch ID, or enter the code from the PhoneBridge app on your phone (or your recovery code)."
-                                               : "Enter the code from the PhoneBridge app on your phone, or your recovery code."
-            let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-            alert.accessoryView = field
-            alert.addButton(withTitle: "Continue")
-            alert.addButton(withTitle: "Cancel")
-            if canTouchID { alert.addButton(withTitle: "Use Touch ID") }
-            alert.window.initialFirstResponder = field
-            switch alert.runModal() {
-            case .alertFirstButtonReturn: return verify(field.stringValue)
-            case .alertThirdButtonReturn:
-                if touchID(title) { return true }
-            default: return false
-            }
-        }
+        if LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil), touchID(title) { return true }
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = "Enter the code from the PhoneBridge app on your phone, or your recovery code."
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Continue")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        return verify(field.stringValue)
     }
 
     /// Fingerprint check (biometrics only), waited on so the dialog code can stay simple.
