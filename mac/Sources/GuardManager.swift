@@ -111,7 +111,7 @@ final class IntruderGuard: ObservableObject {
             Task { @MainActor in self?.opened("Screen woke up") }
         }
         dc.addObserver(forName: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.opened("Mac unlocked") }
+            Task { @MainActor in self?.ownerUnlocked() }
         }
         if isSetUp {
             startRelay()
@@ -136,8 +136,40 @@ final class IntruderGuard: ObservableObject {
         if awaySince == nil { awaySince = Date() }
     }
 
+    /// macOS's own lock screen is up (Touch ID / password needed).
+    private var systemLocked: Bool {
+        (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool ?? false
+    }
+
+    /// Waiting to see whether the Mac's own lock screen gets unlocked before treating a wake as a stranger.
+    private var pendingOpen: Task<Void, Never>?
+
     /// The Mac just came back from being away: photograph, and lock if it was away long enough (a quick lid flick isn't worth a code).
+    /// If macOS's lock screen is showing, give the owner time to open it with Touch ID first: that proves it's them, so no
+    /// photos and no code. Only if it stays locked does the guard act.
     private func opened(_ reason: String) {
+        guard pendingOpen == nil else { return }
+        guard isSetUp, systemLocked else { return handleOpen(reason) }
+        pendingOpen = Task { @MainActor in
+            for _ in 0..<40 { // about 20 seconds
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                if Task.isCancelled { return }
+                if !systemLocked { return ownerUnlocked() }
+            }
+            pendingOpen = nil
+            handleOpen(reason)
+        }
+    }
+
+    /// The owner got past macOS's lock screen (Touch ID or their password): nothing to photograph, nothing to ask.
+    private func ownerUnlocked() {
+        pendingOpen?.cancel()
+        pendingOpen = nil
+        awaySince = nil
+        if locked && lockIsAuto { releaseLock() }
+    }
+
+    private func handleOpen(_ reason: String) {
         purgeOldDays()
         let awayFor = Date().timeIntervalSince(awaySince ?? Date())
         awaySince = nil
