@@ -93,7 +93,12 @@ final class IntruderGuard: ObservableObject {
             Task { @MainActor in self?.purgeOldDays() }
         }
         lockScreen.model.verify = { [weak self] in self?.verify($0) ?? false }
-        lockScreen.model.onUnlocked = { [weak self] in self?.releaseLock() }
+        // Touch ID or the code: the owner proved it's them, so photos that were waiting aren't taken.
+        lockScreen.model.onUnlocked = { [weak self] in
+            self?.pendingPhoto?.cancel()
+            self?.pendingPhoto = nil
+            self?.releaseLock()
+        }
         // "Away" = the Mac asleep, the display asleep, or the screen locked. Coming back from any of them after a while is
         // someone opening the Mac: photos, plus the code if that's how it's set up.
         let ws = NSWorkspace.shared.notificationCenter
@@ -124,7 +129,7 @@ final class IntruderGuard: ObservableObject {
             } else if ProcessInfo.processInfo.systemUptime < 600 {
                 // Only a real startup counts. Reopening or updating PhoneBridge doesn't photograph, lock or ask for anything.
                 autoLock()
-                trigger("Mac started and logged in")
+                triggerAfterGrace("Mac started and logged in")
             }
         } else if locked {
             Keychain.delete("guardLocked") // no key means no way to unlock: never lock in that state
@@ -143,7 +148,22 @@ final class IntruderGuard: ObservableObject {
         awaySince = nil
         // "Every time" means every time (only ignoring a bounce of a few seconds); the other mode skips short lid flicks.
         if awayFor >= (requireMode == .always ? 3 : 20) { autoLock() }
-        trigger(reason)
+        triggerAfterGrace(reason)
+    }
+
+    private var pendingPhoto: Task<Void, Never>?
+
+    /// While the lock screen is asking for Touch ID / the code, wait a little before photographing: unlocking
+    /// in that time cancels the photos. Without a lock screen, photograph at once.
+    private func triggerAfterGrace(_ reason: String) {
+        guard locked, lockScreen.showing else { return trigger(reason) }
+        guard pendingPhoto == nil else { return }
+        pendingPhoto = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 12_000_000_000)
+            guard !Task.isCancelled else { return }
+            pendingPhoto = nil
+            trigger(reason)
+        }
     }
 
     // MARK: Enable / disable

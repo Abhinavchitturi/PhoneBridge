@@ -1,4 +1,5 @@
 import AppKit
+import LocalAuthentication
 import SwiftUI
 
 /// Full-screen "this Mac is locked" cover. Opens only with the authenticator code from the owner's phone (or the recovery code).
@@ -16,6 +17,7 @@ final class GuardLockModel: ObservableObject {
     @Published var hint = ""
     var verify: (String) -> Bool = { _ in false }
     var onUnlocked: () -> Void = {}
+    @Published var touchIDAvailable = false
     private var failures = 0
     private var lockedOutUntil = Date.distantPast
 
@@ -24,6 +26,27 @@ final class GuardLockModel: ObservableObject {
         message = ""
         failures = 0
         lockedOutUntil = .distantPast
+    }
+
+    /// Asks for the owner's fingerprint (biometrics only: no password fallback, since the code is the fallback here).
+    func useTouchID() {
+        let ctx = LAContext()
+        ctx.localizedFallbackTitle = ""
+        guard ctx.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) else {
+            touchIDAvailable = false
+            message = "Touch ID isn't available — enter the code."
+            return
+        }
+        ctx.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "unlock this Mac") { ok, _ in
+            Task { @MainActor in
+                if ok {
+                    self.reset()
+                    self.onUnlocked()
+                } else {
+                    self.message = "Touch ID didn't work — try again or enter the code."
+                }
+            }
+        }
     }
 
     func submit() {
@@ -61,6 +84,7 @@ final class GuardLockController {
         showing = true
         model.reset()
         model.testSecondsLeft = test ? 12 : nil
+        model.touchIDAvailable = LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
         NSApp.setActivationPolicy(.regular)
         buildWindows()
         // Hides the Dock and menu bar, and disables Cmd-Tab, force quit and the logout/shutdown menu while this is up.
@@ -81,6 +105,12 @@ final class GuardLockController {
         ]
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
+        }
+        // Offer the fingerprint straight away; the button asks again.
+        if model.touchIDAvailable && !test {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                if self?.showing == true { self?.model.useTouchID() }
+            }
         }
     }
 
@@ -187,7 +217,7 @@ struct GuardLockView: View {
             VStack(spacing: 18) {
                 Image(systemName: "lock.shield.fill").font(.system(size: 70)).foregroundStyle(Theme.gradient)
                 Text("This Mac is locked").font(.system(size: 36, weight: .bold, design: .rounded)).foregroundStyle(.white)
-                Text("Enter the unlock code from the PhoneBridge app on the owner's phone.")
+                Text("Use Touch ID, or enter the unlock code from the PhoneBridge app on the owner's phone.")
                     .font(.system(size: 15)).foregroundStyle(.white.opacity(0.65)).multilineTextAlignment(.center).frame(maxWidth: 420)
                 LockField(text: $model.input) { model.submit() }
                     .frame(width: 300, height: 48)
@@ -196,6 +226,14 @@ struct GuardLockView: View {
                 Text(model.message.isEmpty ? " " : model.message).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.red)
                 if !model.hint.isEmpty {
                     Text(model.hint).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.accent2)
+                }
+                if model.touchIDAvailable {
+                    Button { model.useTouchID() } label: {
+                        Label("Use Touch ID", systemImage: "touchid").font(.system(size: 15, weight: .semibold))
+                    }
+                    .buttonStyle(.plain).foregroundStyle(.white)
+                    .padding(.horizontal, 18).padding(.vertical, 9)
+                    .background(Capsule().fill(Color.white.opacity(0.14)))
                 }
                 Text("The saved recovery code works too.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.4))
                 if let left = model.testSecondsLeft {
