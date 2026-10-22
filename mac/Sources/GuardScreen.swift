@@ -53,7 +53,7 @@ final class GuardLockModel: ObservableObject {
                     self.onUnlocked()
                 } else {
                     let e = error as NSError?
-                    self.message = "Touch ID didn't work (\(e?.localizedDescription ?? "unknown"), code \(e?.code ?? 0)) — try again or enter the code."
+                    self.message = "Touch ID didn't work — press Return to try again, or enter the code."
                 }
             }
         }
@@ -122,7 +122,7 @@ final class GuardLockController {
             Task { @MainActor in self?.tick() }
         }
         // Offer the fingerprint straight away; the button asks again.
-        if model.touchIDAvailable && !test {
+        if model.touchIDAvailable {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
                 if self?.showing == true { self?.model.useTouchID() }
             }
@@ -250,7 +250,7 @@ struct GuardLockView: View {
                 if !model.hint.isEmpty {
                     Text(model.hint).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.accent2)
                 }
-                Text(model.touchIDAvailable ? "Press Return to use Touch ID again. The saved recovery code works too." : "The saved recovery code works too.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.4))
+                Text("The saved recovery code works too.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.4))
                 if let left = model.testSecondsLeft {
                     Text("Test mode — this screen closes by itself in \(max(left, 0)) s")
                         .font(.system(size: 13, weight: .semibold)).foregroundStyle(.orange).padding(.top, 8)
