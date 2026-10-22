@@ -1,5 +1,6 @@
 import AppKit
 import CryptoKit
+import LocalAuthentication
 import SwiftUI
 
 struct GuardEvent: Identifiable, Codable {
@@ -217,19 +218,42 @@ final class IntruderGuard: ObservableObject {
         return false
     }
 
-    /// A small dialog asking for the unlock code. Returns true if it was right.
+    /// A small dialog asking for the unlock code, or Touch ID. Returns true if it was right.
     func askCode(_ title: String) -> Bool {
         NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = "Enter the code from the PhoneBridge app on your phone, or your recovery code."
-        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        alert.accessoryView = field
-        alert.addButton(withTitle: "Continue")
-        alert.addButton(withTitle: "Cancel")
-        alert.window.initialFirstResponder = field
-        guard alert.runModal() == .alertFirstButtonReturn else { return false }
-        return verify(field.stringValue)
+        let canTouchID = LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+        while true {
+            let alert = NSAlert()
+            alert.messageText = title
+            alert.informativeText = canTouchID ? "Use Touch ID, or enter the code from the PhoneBridge app on your phone (or your recovery code)."
+                                               : "Enter the code from the PhoneBridge app on your phone, or your recovery code."
+            let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+            alert.accessoryView = field
+            alert.addButton(withTitle: "Continue")
+            alert.addButton(withTitle: "Cancel")
+            if canTouchID { alert.addButton(withTitle: "Use Touch ID") }
+            alert.window.initialFirstResponder = field
+            switch alert.runModal() {
+            case .alertFirstButtonReturn: return verify(field.stringValue)
+            case .alertThirdButtonReturn:
+                if touchID(title) { return true }
+            default: return false
+            }
+        }
+    }
+
+    /// Fingerprint check (biometrics only), waited on so the dialog code can stay simple.
+    private func touchID(_ reason: String) -> Bool {
+        let ctx = LAContext()
+        ctx.localizedFallbackTitle = ""
+        let done = DispatchSemaphore(value: 0)
+        var ok = false
+        ctx.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason.lowercased()) { success, _ in
+            ok = success
+            done.signal()
+        }
+        done.wait()
+        return ok
     }
 
     /// Asked by the app before it quits. System shutdown/restart/logout always goes through.
