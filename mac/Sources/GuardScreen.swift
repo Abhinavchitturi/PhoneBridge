@@ -33,14 +33,16 @@ final class GuardLockModel: ObservableObject {
     }
 
     /// Asks for the owner's fingerprint (biometrics only: no password fallback, since the code is the fallback here).
-    func useTouchID() {
-        guard !prompting else { return } // a second click would cancel the prompt that's already up
+    /// Returns false if Touch ID can't be used right now (`quiet` keeps that off the screen, for retries).
+    @discardableResult
+    func useTouchID(quiet: Bool = false) -> Bool {
+        guard !prompting else { return true } // a second click would cancel the prompt that's already up
         let ctx = LAContext()
         ctx.localizedFallbackTitle = ""
-        guard ctx.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) else {
-            touchIDAvailable = false
-            message = "Touch ID isn't available — enter the code."
-            return
+        var err: NSError?
+        guard ctx.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &err) else {
+            if !quiet { message = "Touch ID isn't available (\(err?.localizedDescription ?? "unknown")) — enter the code." }
+            return false
         }
         prompting = true
         promptWillShow()
@@ -57,6 +59,7 @@ final class GuardLockModel: ObservableObject {
                 }
             }
         }
+        return true
     }
 
     func submit() {
@@ -99,7 +102,7 @@ final class GuardLockController {
         model.testSecondsLeft = test ? 12 : nil
         model.promptWillShow = { [weak self] in self?.setPrompt(true) }
         model.promptDidEnd = { [weak self] in self?.setPrompt(false) }
-        model.touchIDAvailable = LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+        model.touchIDAvailable = true
         NSApp.setActivationPolicy(.regular)
         buildWindows()
         // Hides the Dock and menu bar, and disables Cmd-Tab, force quit and the logout/shutdown menu while this is up.
@@ -122,9 +125,12 @@ final class GuardLockController {
             Task { @MainActor in self?.tick() }
         }
         // Offer the fingerprint straight away; the button asks again.
-        if model.touchIDAvailable {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                if self?.showing == true { self?.model.useTouchID() }
+        // Right after a wake or restart macOS may not have Touch ID ready yet, so keep trying for a few seconds.
+        Task { @MainActor [weak self] in
+            for attempt in 0..<10 {
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                guard let self, self.showing else { return }
+                if self.model.useTouchID(quiet: attempt < 9) { return }
             }
         }
     }
