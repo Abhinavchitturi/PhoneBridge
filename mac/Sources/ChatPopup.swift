@@ -96,14 +96,17 @@ final class ChatPopup: ObservableObject {
             panel = p
             positionTopRight(size: h.fittingSize)
         }
+        let reappearing = panel?.isVisible == false
         resize()
+        if reappearing, let h = hosting { positionTopRight(size: h.fittingSize) } // start from the top again, not where it last ended up
         panel?.orderFrontRegardless()
     }
 
     private func positionTopRight(size: NSSize) {
-        guard let p = panel, let screen = NSScreen.main?.visibleFrame else { return }
+        // Same spot as macOS's own banners: right at the top edge of the screen, not under the menu bar.
+        guard let p = panel, let screen = NSScreen.main?.frame else { return }
         let drop: CGFloat = isBusy() ? 190 : 0
-        p.setFrame(NSRect(x: screen.maxX - size.width - 14, y: screen.maxY - size.height - 10 - drop, width: size.width, height: size.height), display: true)
+        p.setFrame(NSRect(x: screen.maxX - size.width - 14, y: screen.maxY - size.height - 12 - drop, width: size.width, height: size.height), display: true)
     }
 
     private func resizeSoon() {
