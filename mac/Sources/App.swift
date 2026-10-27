@@ -176,6 +176,7 @@ final class Bridge: ObservableObject {
     let mac = MacControl()
     let macMedia = MacMedia()
     let mediaDeck = MediaDeck()
+    let commandServer = CommandServer()
     let phone = PhoneStore()
     let input = InputControl()
     let presence = Presence()
@@ -280,6 +281,40 @@ final class Bridge: ObservableObject {
         link.start()
         streamer.start()
         guardian.start()
+        commandServer.handle = { [weak self] req, reply in
+            Task { @MainActor in
+                if let self { reply(self.runCommand(req)) } else { reply(["ok": false, "error": "PhoneBridge is quitting"]) }
+            }
+        }
+        commandServer.start()
+    }
+
+    /// Commands from the `pb` tool / Shortcuts: send, ring, clip, status.
+    private func runCommand(_ req: [String: Any]) -> [String: Any] {
+        let cmd = req["cmd"] as? String
+        if cmd == "status" { return ["ok": true, "connected": connected, "ringing": phoneRinging] }
+        guard connected else { return ["ok": false, "error": "Phone not connected"] }
+        switch cmd {
+        case "send":
+            let fm = FileManager.default
+            let urls = (req["paths"] as? [String] ?? []).map { URL(fileURLWithPath: $0) }
+            var isDir: ObjCBool = false
+            guard !urls.isEmpty, urls.allSatisfy({ fm.fileExists(atPath: $0.path, isDirectory: &isDir) && !isDir.boolValue }) else {
+                return ["ok": false, "error": "Only existing files can be sent"]
+            }
+            sendFiles(urls)
+            return ["ok": true, "count": urls.count]
+        case "ring":
+            let want = req["on"] as? Bool ?? !phoneRinging
+            if want != phoneRinging { toggleRing() }
+            return ["ok": true, "ringing": phoneRinging]
+        case "clip":
+            guard let text = req["text"] as? String, !text.isEmpty else { return ["ok": false, "error": "Nothing to copy"] }
+            link.send(["t": "clip", "text": text])
+            return ["ok": true]
+        default:
+            return ["ok": false, "error": "Unknown command"]
+        }
     }
 
     func send(_ msg: [String: Any]) { link.send(msg) }

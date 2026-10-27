@@ -123,6 +123,19 @@ If Android says *"App was denied access"* or a switch is greyed out, read the ne
 1. Make sure PhoneBridge is open on both devices (same network).
 2. Both show a 6-digit code. If they match, tap **Pair** on both. That's the only time you do this.
 
+## Command line and Shortcuts
+
+While PhoneBridge is running it keeps a small tool at `~/.phonebridge/pb`. It talks to the app over a private socket (`~/.phonebridge/pb.sock`, readable only by you), so it works from Terminal, scripts, and the Shortcuts app (add a **Run Shell Script** action and call it).
+
+```sh
+~/.phonebridge/pb send report.pdf photo.jpg   # send files to the phone
+~/.phonebridge/pb ring            # ring the phone ("pb ring off" to stop)
+~/.phonebridge/pb clip "text"     # put text on the phone's clipboard (or: pbpaste | pb clip)
+~/.phonebridge/pb status          # prints "connected" / "not connected"; exit code 0 / 1
+```
+
+Exit codes: 0 done, 1 failed (e.g. phone not connected), 2 wrong usage, 3 PhoneBridge isn't running. For a shorter command, `sudo ln -sf ~/.phonebridge/pb /usr/local/bin/pb`.
+
 ## Allowing SMS, calls and notifications on Android ("restricted settings")
 
 Recent Android versions (13 and later, and stricter with each release) block certain permissions — such as **SMS, call log and notification access** — for any app you install yourself (an APK that didn't come from the Play Store). This is an Android safeguard against malware, so the permission buttons can look disabled or say *"App was denied access"*. It isn't a bug, and it isn't root: you just have to tell Android that you trust this app.
