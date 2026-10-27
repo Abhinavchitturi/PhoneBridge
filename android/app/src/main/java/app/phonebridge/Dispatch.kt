@@ -44,6 +44,7 @@ object Dispatch {
                 "mac_state" -> MacRemote.onState(m)
                 "shortcuts" -> MacRemote.onShortcuts(m)
                 "mac_media" -> MacRemote.onMedia(m)
+                "deck_state" -> MacRemote.onDeck(m)
                 "media_cmd" -> MediaWatch.command(m.getString("cmd"))
                 "notif_action" -> NotifListener.instance?.pressAction(m.getString("id"), m.getInt("index"))
                 "clip_image" -> ImageClip.setFromMac(ctx, Crypto.b64d(m.getString("png")))

@@ -219,6 +219,10 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <activity
+            android:name=".DeckActivity"
+            android:exported="false"
+            android:label="Player" />
+        <activity
             android:name=".RemoteActivity"
             android:exported="false"
             android:label="Mac remote"

@@ -12,6 +12,8 @@ final class MacControl: ObservableObject {
     /// Sends play/pause/next/prev straight to the Mac's now-playing app; false if that isn't available.
     var mediaCommand: (String) -> Bool = { _ in false }
     var onCall: (Bool) -> Void = { _ in }
+    /// The phone's player screen: opened / left / a control pressed ("action" + "value").
+    var deck: (_ cmd: String, _ action: String?, _ value: Any?) -> Void = { _, _, _ in }
     private var lastState: [String: AnyHashable] = [:]
     private var mutedForCall = false
     private var lowAlerted = false
@@ -32,6 +34,8 @@ final class MacControl: ObservableObject {
         switch m["cmd"] as? String {
         case "lock": lock()
         case "sleep": Self.shell("/usr/bin/pmset", ["sleepnow"])
+        case "deck_on", "deck_off": deck(m["cmd"] as! String, nil, nil)
+        case "deck_do": deck("deck_do", m["action"] as? String, m["value"])
         case "play_pause": if !mediaCommand("play_pause") { mediaKey(16) }
         case "next": if !mediaCommand("next") { mediaKey(17) }
         case "prev": if !mediaCommand("prev") { mediaKey(18) }

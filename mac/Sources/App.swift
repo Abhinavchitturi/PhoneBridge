@@ -175,6 +175,7 @@ final class Bridge: ObservableObject {
     let callPanel = CallPanel()
     let mac = MacControl()
     let macMedia = MacMedia()
+    let mediaDeck = MediaDeck()
     let phone = PhoneStore()
     let input = InputControl()
     let presence = Presence()
@@ -220,6 +221,15 @@ final class Bridge: ObservableObject {
         mac.mediaCommand = { [macMedia] in macMedia.command($0) }
         mac.onCall = { [macMedia] on in if on { macMedia.pauseForCall() } else { macMedia.resumeAfterCall() } }
         macMedia.send = { [link] in link.send($0) }
+        mediaDeck.send = { [link] in link.send($0) }
+        mediaDeck.currentApp = { [macMedia] in macMedia.currentApp }
+        mac.deck = { [mediaDeck] cmd, action, value in
+            switch cmd {
+            case "deck_on": mediaDeck.on()
+            case "deck_off": mediaDeck.off()
+            default: if let action { mediaDeck.perform(action, value: value) }
+            }
+        }
         phone.send = { [link] in link.send($0) }
         phone.onSendFiles = { [weak self] in self?.sendFiles($0) }
         phone.notify = { [notifier] title, body in notifier.info(title, body) }

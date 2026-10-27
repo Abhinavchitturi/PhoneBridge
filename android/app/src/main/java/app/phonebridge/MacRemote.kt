@@ -45,6 +45,16 @@ object MacRemote {
         Link.changed()
     }
 
+    /** Detailed player state (Spotify / YouTube) for the player screen; it has its own listeners so Home isn't redrawn each second. */
+    @Volatile var deck: JSONObject? = null
+        private set
+    val deckListeners = java.util.concurrent.CopyOnWriteArraySet<() -> Unit>()
+
+    fun onDeck(m: JSONObject) {
+        deck = m
+        deckListeners.forEach { it() }
+    }
+
     fun onShortcuts(m: JSONObject) {
         val arr = m.getJSONArray("names")
         shortcuts = List(arr.length()) { arr.getString(it) }
