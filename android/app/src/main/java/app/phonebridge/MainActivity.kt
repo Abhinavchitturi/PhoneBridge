@@ -356,6 +356,8 @@ class MainActivity : Activity() {
         background = rounded(c.chip, radius = 16)
         setPadding(dp(10), dp(10), dp(14), dp(10))
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) }
+        isClickable = true
+        setOnClickListener { startActivity(Intent(this@MainActivity, DeckActivity::class.java)) }
         addView(ImageView(context).apply {
             if (t.art != null) setImageBitmap(t.art) else {
                 setImageResource(android.R.drawable.ic_media_play)

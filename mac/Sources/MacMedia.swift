@@ -51,6 +51,9 @@ final class MacMedia: @unchecked Sendable {
         if resume { _ = command("play") }
     }
 
+    /// The app behind the current now-playing track ("Spotify", "Brave Browser", …).
+    var currentApp: String { queue.sync { last["app"] as? String ?? "" } }
+
     func resend() {
         queue.async { self.send(self.message(self.last)) }
     }

@@ -1,4 +1,5 @@
 import AppKit
+import LocalAuthentication
 import SwiftUI
 
 /// Full-screen "this Mac is locked" cover. Opens only with the authenticator code from the owner's phone (or the recovery code).
@@ -16,6 +17,11 @@ final class GuardLockModel: ObservableObject {
     @Published var hint = ""
     var verify: (String) -> Bool = { _ in false }
     var onUnlocked: () -> Void = {}
+    @Published var touchIDAvailable = false
+    /// Called around the system's Touch ID prompt, so the lock cover can step out of its way.
+    var promptWillShow: () -> Void = {}
+    var promptDidEnd: () -> Void = {}
+    private var prompting = false
     private var failures = 0
     private var lockedOutUntil = Date.distantPast
 
@@ -26,10 +32,43 @@ final class GuardLockModel: ObservableObject {
         lockedOutUntil = .distantPast
     }
 
+    /// Asks for the owner's fingerprint (biometrics only: no password fallback, since the code is the fallback here).
+    /// Returns false if Touch ID can't be used right now (`quiet` keeps that off the screen, for retries).
+    @discardableResult
+    func useTouchID(quiet: Bool = false) -> Bool {
+        guard !prompting else { return true } // a second click would cancel the prompt that's already up
+        let ctx = LAContext()
+        ctx.localizedFallbackTitle = ""
+        var err: NSError?
+        guard ctx.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &err) else {
+            if !quiet { message = "Touch ID isn't available (\(err?.localizedDescription ?? "unknown")) — enter the code." }
+            return false
+        }
+        prompting = true
+        promptWillShow()
+        ctx.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "unlock this Mac") { ok, error in
+            Task { @MainActor in
+                self.prompting = false
+                self.promptDidEnd()
+                if ok {
+                    self.reset()
+                    self.onUnlocked()
+                } else {
+                    let e = error as NSError?
+                    self.message = "Touch ID didn't work — press Return to try again, or enter the code."
+                }
+            }
+        }
+        return true
+    }
+
     func submit() {
         let code = input.trimmingCharacters(in: .whitespaces)
         input = ""
-        guard !code.isEmpty else { return }
+        guard !code.isEmpty else {
+            if touchIDAvailable { useTouchID() } // Return on an empty field asks for the fingerprint again
+            return
+        }
         let wait = Int(lockedOutUntil.timeIntervalSinceNow.rounded(.up))
         if wait > 0 { message = "Too many tries. Wait \(wait) s."; return }
         if verify(code) {
@@ -61,6 +100,9 @@ final class GuardLockController {
         showing = true
         model.reset()
         model.testSecondsLeft = test ? 12 : nil
+        model.promptWillShow = { [weak self] in self?.setPrompt(true) }
+        model.promptDidEnd = { [weak self] in self?.setPrompt(false) }
+        model.touchIDAvailable = true
         NSApp.setActivationPolicy(.regular)
         buildWindows()
         // Hides the Dock and menu bar, and disables Cmd-Tab, force quit and the logout/shutdown menu while this is up.
@@ -82,6 +124,15 @@ final class GuardLockController {
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
+        // Offer the fingerprint straight away; the button asks again.
+        // Right after a wake or restart macOS may not have Touch ID ready yet, so keep trying for a few seconds.
+        Task { @MainActor [weak self] in
+            for attempt in 0..<10 {
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                guard let self, self.showing else { return }
+                if self.model.useTouchID(quiet: attempt < 9) { return }
+            }
+        }
     }
 
     func dismiss() {
@@ -100,6 +151,14 @@ final class GuardLockController {
     }
 
     private var testTicks = 0
+    /// While the Touch ID prompt is up the cover drops below it and stops grabbing focus (grabbing it cancels the prompt).
+    private var promptUp = false
+
+    private func setPrompt(_ up: Bool) {
+        promptUp = up
+        for w in windows { w.level = up ? .floating : NSWindow.Level(rawValue: Int(CGShieldingWindowLevel())) }
+        if !up { keepFront() }
+    }
 
     private func tick() {
         guard showing else { return }
@@ -112,7 +171,7 @@ final class GuardLockController {
     }
 
     private func keepFront() {
-        guard showing else { return }
+        guard showing, !promptUp else { return }
         if NSScreen.screens.count != windows.count { buildWindows() }
         if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) }
         for (i, w) in windows.enumerated() {
@@ -187,7 +246,7 @@ struct GuardLockView: View {
             VStack(spacing: 18) {
                 Image(systemName: "lock.shield.fill").font(.system(size: 70)).foregroundStyle(Theme.gradient)
                 Text("This Mac is locked").font(.system(size: 36, weight: .bold, design: .rounded)).foregroundStyle(.white)
-                Text("Enter the unlock code from the PhoneBridge app on the owner's phone.")
+                Text("Use Touch ID, or enter the unlock code from the PhoneBridge app on the owner's phone.")
                     .font(.system(size: 15)).foregroundStyle(.white.opacity(0.65)).multilineTextAlignment(.center).frame(maxWidth: 420)
                 LockField(text: $model.input) { model.submit() }
                     .frame(width: 300, height: 48)
