@@ -7,6 +7,8 @@ final class MediaDeck: @unchecked Sendable {
     var send: ([String: Any]) -> Void = { _ in }
     /// The app name from the now-playing watcher ("Spotify", "Brave Browser", …).
     var currentApp: () -> String = { "" }
+    /// The track/video title from the now-playing watcher, to find the right browser tab.
+    var currentTitle: () -> String = { "" }
 
     private let queue = DispatchQueue(label: "phonebridge.mediadeck")
     private var timer: DispatchSourceTimer?
@@ -44,6 +46,7 @@ final class MediaDeck: @unchecked Sendable {
             let state: [String: Any]
             switch kind {
             case .spotify: state = self.spotify(action: action, value: value)
+            case .music: state = self.music(action: action, value: value)
             case .browser(let app): state = self.youtube(app: app, action: action, value: value)
             case .none: state = ["kind": "none"]
             }
@@ -60,6 +63,7 @@ final class MediaDeck: @unchecked Sendable {
         defer { busy = false }
         switch kind() {
         case .spotify: emit(spotify(action: nil, value: nil))
+        case .music: emit(music(action: nil, value: nil))
         case .browser(let app): emit(youtube(app: app, action: nil, value: nil))
         case .none: emit(["kind": "none"])
         }
@@ -71,11 +75,12 @@ final class MediaDeck: @unchecked Sendable {
         send(m)
     }
 
-    private enum Kind { case spotify, browser(String), none }
+    private enum Kind { case spotify, music, browser(String), none }
 
     private func kind() -> Kind {
         let app = currentApp()
         if app.contains("Spotify") { return .spotify }
+        if app == "Music" { return .music }
         if app.contains("Brave") { return .browser("Brave Browser") }
         if app.contains("Chrome") { return .browser("Google Chrome") }
         if app.contains("Safari") { return .browser("Safari") }
@@ -138,27 +143,61 @@ final class MediaDeck: @unchecked Sendable {
                 "shuffle": f[3] == "true", "repeat": f[4] == "true"]
     }
 
-    // MARK: YouTube
+    // MARK: Apple Music
+
+    private func music(action: String?, value: Any?) -> [String: Any] {
+        guard NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Music").first != nil else {
+            return ["kind": "none"]
+        }
+        var set = ""
+        switch action {
+        case "toggle": set = "playpause"
+        case "seek": if let s = (value as? NSNumber)?.intValue { set = "set player position to \(max(0, s))" }
+        case "shuffle": if let b = value as? Bool { set = "set shuffle enabled to \(b)" }
+        case "repeat": if let r = value as? String, ["off", "one", "all"].contains(r) { set = "set song repeat to \(r)" }
+        default: break
+        }
+        let script = """
+            tell application "Music"
+                \(set)
+                if player state is stopped then return "stopped"
+                return (player state as text) & "|" & (player position as integer) & "|" & (duration of current track as integer) & "|" & shuffle enabled & "|" & song repeat
+            end tell
+            """
+        var err = ""
+        guard let out = osascript(script, error: &err) else { return ["kind": "music", "error": appleEventError(err)] }
+        let f = out.split(separator: "|").map(String.init)
+        guard f.count == 5 else { return ["kind": "music", "playing": false, "pos": 0, "dur": 0] }
+        return ["kind": "music", "playing": f[0] == "playing", "pos": Double(f[1]) ?? 0, "dur": Double(f[2]) ?? 0,
+                "shuffle": f[3] == "true", "repeat": f[4]]
+    }
+
+    // MARK: Web video (YouTube and anything with a plain <video>)
 
     /// Runs in the video's tab. Does the action (if any) and returns the player's state as JSON.
     private static let js = """
         (function(a, v) {
-          var p = document.getElementById('movie_player'), vd = document.querySelector('video');
-          if (!vd) return '';
-          var sb = document.querySelector('.ytp-subtitles-button');
+          var vs = [].slice.call(document.querySelectorAll('video'));
+          if (!vs.length) return '';
+          var playing = vs.filter(function(x) { return !x.paused && x.readyState > 2; });
+          var vd = (playing.length ? playing : vs).sort(function(x, y) { return y.clientWidth * y.clientHeight - x.clientWidth * x.clientHeight; })[0];
+          var p = document.getElementById('movie_player');
+          var yt = !!p && location.hostname.indexOf('youtube.com') >= 0 && location.pathname.indexOf('/watch') == 0;
+          var sb = yt ? document.querySelector('.ytp-subtitles-button') : null;
           if (a == 'toggle') { vd.paused ? vd.play() : vd.pause(); }
           else if (a == 'seek') { vd.currentTime = v; }
           else if (a == 'skip') { vd.currentTime = Math.max(0, Math.min(vd.duration || 1e9, vd.currentTime + v)); }
           else if (a == 'speed') { vd.playbackRate = v; }
-          else if (a == 'subs') { if (p && p.toggleSubtitles) p.toggleSubtitles(); else if (sb) sb.click(); }
-          else if (a == 'quality') { if (p) { p.setPlaybackQualityRange(v, v); p.setPlaybackQuality(v); } }
+          else if (a == 'subs' && yt) { if (p.toggleSubtitles) p.toggleSubtitles(); else if (sb) sb.click(); }
+          else if (a == 'quality' && yt) { p.setPlaybackQualityRange(v, v); p.setPlaybackQuality(v); }
           var hasSubs = !!sb && getComputedStyle(sb).display != 'none';
           var subsOn = hasSubs && sb.getAttribute('aria-pressed') == 'true';
-          var q = p && p.getPlaybackQuality ? p.getPlaybackQuality() : '';
-          var qs = p && p.getAvailableQualityLevels ? p.getAvailableQualityLevels() : [];
-          return JSON.stringify({playing: !vd.paused, pos: vd.currentTime, dur: isFinite(vd.duration) ? vd.duration : 0,
-            speed: vd.playbackRate, subs: subsOn, hasSubs: hasSubs, quality: q, qualities: qs,
-            title: document.title.replace(/ - YouTube$/, '')});
+          var url = yt ? location.origin + '/watch?v=' + new URLSearchParams(location.search).get('v') : location.href;
+          return JSON.stringify({site: yt ? 'youtube' : 'web', playing: !vd.paused, pos: vd.currentTime,
+            dur: isFinite(vd.duration) ? vd.duration : 0, speed: vd.playbackRate, subs: subsOn, hasSubs: hasSubs,
+            quality: yt && p.getPlaybackQuality ? p.getPlaybackQuality() : '',
+            qualities: yt && p.getAvailableQualityLevels ? p.getAvailableQualityLevels() : [],
+            title: document.title.replace(/ - YouTube$/, ''), url: url});
         })
         """
 
@@ -170,25 +209,25 @@ final class MediaDeck: @unchecked Sendable {
     }
 
     private func youtube(app: String, action: String?, value: Any?) -> [String: Any] {
-        let tabs: String, count: String, getTab: String, run: String
-        if app == "Safari" {
-            tabs = "windows"; count = "count of tabs of w"; getTab = "tab i of w"; run = "do JavaScript (js) in t"
-        } else {
-            tabs = "windows"; count = "count of tabs of w"; getTab = "tab i of w"; run = "execute t javascript (js)"
-        }
+        let tabs = "windows", count = "count of tabs of w", getTab = "tab i of w"
+        let titleProp = app == "Safari" ? "name" : "title"
+        let run = app == "Safari" ? "do JavaScript (js) in t" : "execute t javascript (js)"
         // The tab named in `target` gets the action; every YouTube tab reports its state.
         let script = """
             on run argv
                 set stateJS to item 1 of argv
                 set actionJS to item 2 of argv
                 set wanted to item 3 of argv
+                set wantedTitle to item 4 of argv
                 set out to ""
                 tell application "\(app)"
                     repeat with w in \(tabs)
                         set wi to id of w
                         repeat with i from 1 to (\(count))
                             set t to \(getTab)
-                            if (URL of t) contains "youtube.com/watch" then
+                            set u to URL of t
+                            set nm to \(titleProp) of t
+                            if u contains "youtube.com/watch" or (wantedTitle is not "" and nm contains wantedTitle) or wanted is (wi as text) & "|" & i then
                                 set js to stateJS
                                 if wanted is (wi as text) & "|" & i then set js to actionJS
                                 try
@@ -206,7 +245,7 @@ final class MediaDeck: @unchecked Sendable {
             """
         let actionJS = action.map { jsCall($0, value) } ?? jsCall("state", nil)
         var err = ""
-        guard let out = osascript(script, [jsCall("state", nil), actionJS, target], error: &err) else {
+        guard let out = osascript(script, [jsCall("state", nil), actionJS, target, String(currentTitle().prefix(40))], error: &err) else {
             return ["kind": "youtube", "error": appleEventError(err)]
         }
         var best: [String: Any]?
@@ -228,7 +267,7 @@ final class MediaDeck: @unchecked Sendable {
         }
         guard var state = best else { return ["kind": "none"] }
         target = bestKey
-        state["kind"] = "youtube"
+        state["kind"] = state.removeValue(forKey: "site") as? String ?? "web"
         return state
     }
 }

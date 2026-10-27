@@ -2,7 +2,9 @@ package app.phonebridge
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
 import android.graphics.Typeface
+import android.net.Uri
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
@@ -115,7 +117,7 @@ class DeckActivity : Activity() {
             body.addView(label(
                 when (error) {
                     "perm" -> "On the Mac: System Settings → Privacy & Security → Automation → PhoneBridge → turn on " +
-                        (if (kind == "spotify") "Spotify" else "your browser") + "."
+                        (when (kind) { "spotify" -> "Spotify"; "music" -> "Music"; else -> "your browser" }) + "."
                     "js_off" -> if (s.optString("browser") == "Safari")
                         "In Safari on the Mac: Develop menu → Allow JavaScript from Apple Events. (Safari Settings → Advanced → Show Develop menu, if you don't see it.)"
                     else "In ${s.optString("browser", "your browser")} on the Mac: View → Developer → Allow JavaScript from Apple Events."
@@ -163,12 +165,21 @@ class DeckActivity : Activity() {
             addView(posView, LinearLayout.LayoutParams(0, -2, 1f))
             addView(durView, LinearLayout.LayoutParams(0, -2, 1f))
         })
-        if (kind == "spotify") buildSpotify() else buildYouTube()
+        when (kind) {
+            "spotify", "music" -> buildSpotify(kind)
+            "youtube" -> buildYouTube()
+            else -> buildWeb()
+        }
     }
 
-    private fun buildSpotify() {
+    /** Spotify (repeat on/off) and Apple Music (repeat off / all / one). */
+    private fun buildSpotify(kind: String) {
         shuffleBtn = tile("🔀", "Shuffle") { MacRemote.command("deck_do", "action" to "shuffle", "value" to !(last?.optBoolean("shuffle") ?: false)) }
-        repeatBtn = tile("🔁", "Repeat") { MacRemote.command("deck_do", "action" to "repeat", "value" to !(last?.optBoolean("repeat") ?: false)) }
+        repeatBtn = tile("🔁", "Repeat") {
+            val v: Any = if (kind == "music") when (last?.optString("repeat")) { "off" -> "all"; "all" -> "one"; else -> "off" }
+            else !(last?.optBoolean("repeat") ?: false)
+            MacRemote.command("deck_do", "action" to "repeat", "value" to v)
+        }
         playBtn = tile("⏯", "Play") { MacRemote.command("deck_do", "action" to "toggle") }
         body.addView(row(
             shuffleBtn!!,
@@ -190,14 +201,45 @@ class DeckActivity : Activity() {
         qualityBtn = tile("🎞", "Quality") { pickQuality() }
         subsBtn = tile("💬", "Subtitles") { MacRemote.command("deck_do", "action" to "subs") }
         body.addView(row(speedBtn!!, qualityBtn!!, subsBtn!!))
+        body.addView(row(tile("📱", "Continue on phone") { continueOnPhone() }))
+    }
+
+    /** Any other site with a plain video: play/pause, ±10 s, speed. */
+    private fun buildWeb() {
+        playBtn = tile("⏯", "Play") { MacRemote.command("deck_do", "action" to "toggle") }
+        body.addView(row(
+            tile("⏪", "−10 s") { MacRemote.command("deck_do", "action" to "skip", "value" to -10) },
+            playBtn!!,
+            tile("⏩", "+10 s") { MacRemote.command("deck_do", "action" to "skip", "value" to 10) },
+        ))
+        speedBtn = tile("⚡", "Speed") { pickSpeed() }
+        body.addView(row(speedBtn!!, tile("📱", "Continue on phone") { continueOnPhone() }))
+    }
+
+    /** Opens the Mac's video on the phone (YouTube at the same second) and pauses the Mac. */
+    private fun continueOnPhone() {
+        val s = last ?: return
+        var url = s.optString("url").takeIf { it.startsWith("http") } ?: return
+        if (s.optString("kind") == "youtube") url += "&t=${s.optDouble("pos", 0.0).toInt()}s"
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            if (s.optBoolean("playing")) MacRemote.command("deck_do", "action" to "toggle")
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(this, "Couldn't open it on the phone", android.widget.Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun update(s: JSONObject) {
         if (titleView == null) return
         val kind = s.optString("kind")
         val np = MacRemote.nowPlaying
-        titleView?.text = if (kind == "youtube") s.optString("title") else np?.title ?: ""
-        subtitleView?.text = if (kind == "youtube") "YouTube" else np?.artist ?: ""
+        val fromPage = kind == "youtube" || kind == "web"
+        titleView?.text = if (fromPage) s.optString("title") else np?.title ?: ""
+        subtitleView?.text = when (kind) {
+            "youtube" -> "YouTube"
+            "web" -> runCatching { Uri.parse(s.optString("url")).host.orEmpty().removePrefix("www.") }.getOrDefault("")
+            else -> np?.artist ?: ""
+        }
         art?.let { v ->
             if (np?.art != null) v.setImageBitmap(np.art) else v.setImageDrawable(null)
         }
@@ -211,7 +253,13 @@ class DeckActivity : Activity() {
         }
         playBtn?.let { setTile(it, if (s.optBoolean("playing")) "⏸" else "▶️", if (s.optBoolean("playing")) "Pause" else "Play") }
         shuffleBtn?.let { mark(it, s.optBoolean("shuffle"), if (s.optBoolean("shuffle")) "Shuffle on" else "Shuffle off") }
-        repeatBtn?.let { mark(it, s.optBoolean("repeat"), if (s.optBoolean("repeat")) "Repeat on" else "Repeat off") }
+        repeatBtn?.let {
+            if (kind == "music") {
+                val r = s.optString("repeat", "off")
+                mark(it, r != "off", "Repeat $r")
+                it.text = (if (r == "one") "🔂" else "🔁") + "\n" + "Repeat $r"
+            } else mark(it, s.optBoolean("repeat"), if (s.optBoolean("repeat")) "Repeat on" else "Repeat off")
+        }
         speedBtn?.let { setTile(it, "⚡", "${trimNum(s.optDouble("speed", 1.0))}×") }
         qualityBtn?.let { setTile(it, "🎞", qualityName(s.optString("quality"))) }
         subsBtn?.let {

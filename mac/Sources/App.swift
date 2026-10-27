@@ -223,6 +223,7 @@ final class Bridge: ObservableObject {
         macMedia.send = { [link] in link.send($0) }
         mediaDeck.send = { [link] in link.send($0) }
         mediaDeck.currentApp = { [macMedia] in macMedia.currentApp }
+        mediaDeck.currentTitle = { [macMedia] in macMedia.currentTitle }
         mac.deck = { [mediaDeck] cmd, action, value in
             switch cmd {
             case "deck_on": mediaDeck.on()
