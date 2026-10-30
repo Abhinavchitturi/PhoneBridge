@@ -108,7 +108,8 @@ class NotifListener : NotificationListenerService() {
         // "ringing" when the phone itself says it's ringing.
         val looksIncoming = e.getInt(Notification.EXTRA_CALL_TYPE, 0) == Notification.CallStyle.CALL_TYPE_INCOMING ||
             findCallAction(n, ANSWER_WORDS) != null
-        val state = if (looksIncoming && phoneIsRinging()) "ringing" else "active"
+        // Ask the phone itself what the call is doing; a notification alone can't tell ringing from answered.
+        val state = callStateFor(telephonyState(), looksIncoming) ?: return
         val person = e.getParcelable(Notification.EXTRA_CALL_PERSON, android.app.Person::class.java)
         val name = person?.name?.toString() ?: e.getCharSequence(Notification.EXTRA_TITLE)?.toString()
         val detail = e.getCharSequence(Notification.EXTRA_TEXT)?.toString()
@@ -133,10 +134,11 @@ class NotifListener : NotificationListenerService() {
     }
 
     @Suppress("DEPRECATION")
-    private fun phoneIsRinging(): Boolean = try {
-        getSystemService(android.telephony.TelephonyManager::class.java).callState == android.telephony.TelephonyManager.CALL_STATE_RINGING
+    /** TelephonyManager's call state (0 idle, 1 ringing, 2 off hook), or null if we can't read it without the phone permission. */
+    private fun telephonyState(): Int? = try {
+        getSystemService(android.telephony.TelephonyManager::class.java).callState
     } catch (e: SecurityException) {
-        true // can't check without the phone permission; trust the notification
+        null
     }
 
     /** Brings the dialer's call screen forward (its notification's own tap action). */
@@ -243,4 +245,16 @@ class NotifListener : NotificationListenerService() {
     } catch (e: Exception) {
         null
     }
+}
+
+/**
+ * What the dialer's call notification means, given the phone's real call state: "ringing" only while the phone is ringing,
+ * "active" only once a call is off hook (answered or dialled), and nothing (null) while the phone is idle, e.g. the
+ * notification showed up a moment before the ringing state did. [tele] null = unknown, so fall back to the notification.
+ */
+internal fun callStateFor(tele: Int?, looksIncoming: Boolean): String? = when (tele) {
+    1 -> if (looksIncoming) "ringing" else "active"
+    2 -> "active"
+    0 -> null
+    else -> if (looksIncoming) "ringing" else "active"
 }
