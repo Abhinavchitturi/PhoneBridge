@@ -240,6 +240,8 @@ final class Bridge: ObservableObject {
         presence.lock = { [mac] in mac.lock() }
         callPanel.onAnswer = { [link] in link.send(["t": "call_answer"]) }
         callPanel.onDecline = { [link] in link.send(["t": "call_end"]) }
+        callPanel.onAnswerWaiting = { [link] in link.send(["t": "call_answer", "waiting": true]) }
+        callPanel.onDeclineWaiting = { [link] in link.send(["t": "call_end", "waiting": true]) }
         guardian.sendLink = { [link] in link.send($0) }
         guardian.isConnected = { [weak self] in self?.connected ?? false }
         guardian.phoneNear = { [weak self] in (self?.connected ?? false) || (self?.presence.seenRecently() ?? false) }

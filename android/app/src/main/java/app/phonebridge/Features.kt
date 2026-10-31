@@ -67,16 +67,14 @@ object Calls {
                 pickedUp = false
             }
         }
-        val n = lastNumber
-        Link.send("call", "state" to state, "number" to n, "name" to n?.let { contactName(ctx, it) })
-        Automations.onCallState(ctx, state)
+        CallReporter.telephony(ctx, when (state) { "ringing" -> 1; "active" -> 2; else -> 0 }, number)
         if (state == "idle") {
             lastNumber = null
             resetAfterCall(ctx)
         }
     }
 
-    private fun contactName(ctx: Context, number: String): String? = try {
+    internal fun contactName(ctx: Context, number: String): String? = try {
         val uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(number))
         ctx.contentResolver.query(uri, arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null)?.use {
             if (it.moveToFirst()) it.getString(0) else null
@@ -85,10 +83,10 @@ object Calls {
         null
     }
 
-    // Prefer pressing the dialer's own button; fall back to the Telecom API.
+    // Prefer pressing the dialer's own button; fall back to the Telecom API (which answers the ringing call, holding the current one).
     @Suppress("DEPRECATION")
-    fun answer(ctx: Context) {
-        if (NotifListener.instance?.pressCallButton(answer = true) == true) return
+    fun answer(ctx: Context, waiting: Boolean = false) {
+        if (NotifListener.instance?.pressCallButton(answer = true, incoming = true) == true) return
         try {
             ctx.getSystemService(TelecomManager::class.java).acceptRingingCall()
         } catch (e: SecurityException) {
@@ -158,9 +156,20 @@ object Calls {
         return svc.pressByWords(words)
     }
 
+    /**
+     * [waiting] = decline the second, ringing call and leave the one you're on alone. Otherwise: decline a ringing call, or end the
+     * call you're on. With a call waiting, TelecomManager.endCall() would reject the *ringing* one, so the fallback is only used
+     * when nothing is waiting.
+     */
     @Suppress("DEPRECATION")
-    fun end(ctx: Context) {
-        if (NotifListener.instance?.pressCallButton(answer = false) == true) return
+    fun end(ctx: Context, waiting: Boolean = false) {
+        val ringingCall = waiting || CallReporter.state() == "ringing"
+        if (NotifListener.instance?.pressCallButton(answer = false, incoming = ringingCall) == true) return
+        if (CallReporter.hasWaiting() && !waiting) {
+            Log.w(TAG, "can't tell which call to end without its button; not guessing")
+            return
+        }
+        if (waiting) return
         try {
             ctx.getSystemService(TelecomManager::class.java).endCall()
         } catch (e: SecurityException) {

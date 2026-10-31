@@ -84,12 +84,8 @@ class NotifListener : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
-        if (sbn.key == callKey) {
-            callKey = null
-            callState = "idle"
-            callConnected = null
-            Link.send("call", "state" to "idle")
-            Automations.onCallState(this, "idle")
+        if (sbn.notification.category == Notification.CATEGORY_CALL && sbn.packageName !in SKIP_PACKAGES && sbn.packageName != packageName) {
+            CallReporter.removed(this, sbn.key, telephonyState())
             return
         }
         if (lastSent.remove(sbn.key) != null) Link.send("notif_removed", "id" to sbn.key)
@@ -97,65 +93,56 @@ class NotifListener : NotificationListenerService() {
 
     // MARK: Calls via the dialer's own notification (more reliable than the phone-state broadcast on Samsung)
 
-    @Volatile private var callKey: String? = null
-    @Volatile private var callState = "idle"
-    @Volatile private var callConnected: Boolean? = null
+    private fun isIncoming(n: Notification): Boolean =
+        n.extras.getInt(Notification.EXTRA_CALL_TYPE, 0) == Notification.CallStyle.CALL_TYPE_INCOMING || findCallAction(n, ANSWER_WORDS) != null
 
     private fun onCallNotification(sbn: StatusBarNotification) {
         val n = sbn.notification
         val e = n.extras
-        // Samsung marks outgoing/ongoing call notifications much like incoming ones, so only call it
-        // "ringing" when the phone itself says it's ringing.
-        val looksIncoming = e.getInt(Notification.EXTRA_CALL_TYPE, 0) == Notification.CallStyle.CALL_TYPE_INCOMING ||
-            findCallAction(n, ANSWER_WORDS) != null
-        // Ask the phone itself what the call is doing; a notification alone can't tell ringing from answered.
-        val state = callStateFor(telephonyState(), looksIncoming) ?: return
         val person = e.getParcelable(Notification.EXTRA_CALL_PERSON, android.app.Person::class.java)
         val name = person?.name?.toString() ?: e.getCharSequence(Notification.EXTRA_TITLE)?.toString()
         val detail = e.getCharSequence(Notification.EXTRA_TEXT)?.toString()
-        // Has the other side picked up? Dialers switch their notification to a running timer once the call connects
-        // (and say "Calling…"/"Dialing…" before). null = can't tell.
-        val chrono = e.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER)
-        val words = detail?.lowercase().orEmpty()
-        val connected: Boolean? = when {
-            state != "active" -> null
-            chrono -> true
-            Regex("""\d{1,2}:\d{2}""").containsMatchIn(words) -> true
-            listOf("dialing", "dialling", "calling", "ringing", "connecting", "trying", "waiting").any { it in words } -> false
-            else -> null
-        }
-        if (sbn.key == callKey && state == callState && connected == callConnected) return
-        callKey = sbn.key
-        callState = state
-        callConnected = connected
-        val since = if (connected == true && n.`when` > 0) n.`when` else null
-        Link.send("call", "state" to state, "name" to name, "detail" to detail, "connected" to connected, "since" to since)
-        Automations.onCallState(this, state)
+        Log.d(TAG, "call notification ${sbn.key}: incoming=${isIncoming(n)} name=$name detail=$detail chrono=${e.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER)}")
+        CallReporter.notification(
+            this,
+            CallNote(sbn.key, isIncoming(n), name, detail, e.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER), n.`when`),
+            telephonyState(),
+        )
     }
 
-    @Suppress("DEPRECATION")
     /** TelephonyManager's call state (0 idle, 1 ringing, 2 off hook), or null if we can't read it without the phone permission. */
+    @Suppress("DEPRECATION")
     private fun telephonyState(): Int? = try {
         getSystemService(android.telephony.TelephonyManager::class.java).callState
     } catch (e: SecurityException) {
         null
     }
 
+    private fun callNotifications() =
+        activeNotifications.filter { it.notification.category == Notification.CATEGORY_CALL && it.packageName != packageName && it.packageName !in SKIP_PACKAGES }
+
     /** Brings the dialer's call screen forward (its notification's own tap action). */
     fun openCallScreen() {
-        val key = callKey ?: return
+        val sbn = callNotifications().firstOrNull { !isIncoming(it.notification) } ?: callNotifications().firstOrNull() ?: return
         try {
-            activeNotifications.firstOrNull { it.key == key }?.notification?.contentIntent?.send()
+            sbn.notification.contentIntent?.send()
         } catch (e: Exception) {
             Log.w(TAG, "couldn't open the call screen", e)
         }
     }
 
-    /** Presses the dialer's own Answer/Decline button. Returns false if there isn't one. */
-    fun pressCallButton(answer: Boolean): Boolean {
-        val key = callKey ?: return false
-        val sbn = activeNotifications.firstOrNull { it.key == key } ?: return false
-        val action = findCallAction(sbn.notification, if (answer) ANSWER_WORDS else DECLINE_WORDS) ?: return false
+    /**
+     * Presses the dialer's own Answer/Decline/End button. [incoming] picks the notification of the *ringing* call (to answer or
+     * decline it) rather than the one of the call you're on (to end it), so a second call can't be mixed up with the first.
+     * Returns false if there isn't such a button.
+     */
+    fun pressCallButton(answer: Boolean, incoming: Boolean): Boolean {
+        val words = if (answer) ANSWER_WORDS else DECLINE_WORDS
+        val calls = callNotifications()
+        var action = calls.filter { isIncoming(it.notification) == incoming }.firstNotNullOfOrNull { findCallAction(it.notification, words) }
+        // A dialer that merges everything into one notification: any matching button will do, as long as nothing is waiting.
+        if (action == null && !CallReporter.hasWaiting()) action = calls.firstNotNullOfOrNull { findCallAction(it.notification, words) }
+        if (action == null) return false
         return try {
             action.actionIntent.send()
             true
@@ -245,16 +232,4 @@ class NotifListener : NotificationListenerService() {
     } catch (e: Exception) {
         null
     }
-}
-
-/**
- * What the dialer's call notification means, given the phone's real call state: "ringing" only while the phone is ringing,
- * "active" only once a call is off hook (answered or dialled), and nothing (null) while the phone is idle, e.g. the
- * notification showed up a moment before the ringing state did. [tele] null = unknown, so fall back to the notification.
- */
-internal fun callStateFor(tele: Int?, looksIncoming: Boolean): String? = when (tele) {
-    1 -> if (looksIncoming) "ringing" else "active"
-    2 -> "active"
-    0 -> null
-    else -> if (looksIncoming) "ringing" else "active"
 }
