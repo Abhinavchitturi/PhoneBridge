@@ -494,8 +494,8 @@ final class Bridge: ObservableObject {
         case "input": input.handle(m)
         case "otp":
             if let code = m["code"] as? String {
-                clipboard.setFromPhone(code)
-                notifier.info("Code \(code) copied", "From \(m["from"] as? String ?? "SMS") — just paste it")
+                clipboard.setFromPhone(code, secret: true)
+                notifier.info("Code \(code) copied", "From \(m["from"] as? String ?? "SMS") — just paste it", clearAfter: 10)
             }
         case "alert":
             notifier.info(m["title"] as? String ?? "PhoneBridge", m["body"] as? String ?? "")

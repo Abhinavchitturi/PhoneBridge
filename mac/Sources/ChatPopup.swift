@@ -124,7 +124,7 @@ final class ChatPopup: ObservableObject {
     /// Goes away after a while, unless you're using it.
     private func restartTimer() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 16, repeats: false) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let p = self.panel else { return }
                 let hovering = p.frame.contains(NSEvent.mouseLocation)
