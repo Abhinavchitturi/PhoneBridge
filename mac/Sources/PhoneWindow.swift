@@ -507,22 +507,6 @@ final class PhoneStore: ObservableObject {
         }
     }
 
-    /// Asks for the PIN right here each time (never stored); leave it empty to just wake the screen and swipe up.
-    func unlockPhone() {
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.messageText = "Unlock your phone"
-        alert.informativeText = "Type your phone's PIN to enter it for you, or leave it empty to only wake the screen and swipe up. PhoneBridge never saves it. Pattern and fingerprint locks can't be entered from here."
-        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        field.placeholderString = "PIN (optional)"
-        alert.accessoryView = field
-        alert.addButton(withTitle: "Unlock")
-        alert.addButton(withTitle: "Cancel")
-        alert.window.initialFirstResponder = field
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        send(["t": "phone_unlock", "pin": field.stringValue])
-    }
-
     func saveAutoReply() {
         send(["t": "autoreply_set", "on": autoReplyOn, "text": autoReplyText, "contactsOnly": autoReplyContactsOnly, "declined": autoReplyDeclined])
     }

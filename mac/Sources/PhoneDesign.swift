@@ -4,11 +4,15 @@ import SwiftUI
 // MARK: - Design language for the Phone window
 
 enum Theme {
-    static let accent = Color(red: 0.43, green: 0.36, blue: 0.98)
-    static let accent2 = Color(red: 0.93, green: 0.36, blue: 0.70)
+    static var current: AppTheme { ThemeStore.shared.current }
+    static var accent: Color { current.accent }
+    static var accent2: Color { current.accent2 }
+    /// Text and icons drawn on top of an accent-coloured fill.
+    static var onAccent: Color { current.onAccent }
     static let green = Color(red: 0.20, green: 0.80, blue: 0.52)
     static let red = Color(red: 0.97, green: 0.34, blue: 0.40)
-    static let gradient = LinearGradient(colors: [accent, accent2], startPoint: .topLeading, endPoint: .bottomTrailing)
+    /// Flat on purpose (Apple-style); kept as a gradient type so existing fills keep working.
+    static var gradient: LinearGradient { LinearGradient(colors: [accent, accent], startPoint: .top, endPoint: .bottom) }
     static let card = Color.primary.opacity(0.055)
     static let stroke = Color.primary.opacity(0.09)
 }
@@ -21,13 +25,38 @@ extension View {
     }
 }
 
-/// Window background: base colour with two soft colour glows.
+/// Pop-up notifications (chat reply box, call panel): the theme's dark surface, an accent hairline and its small mark in the corner.
+struct ThemedSurface: ViewModifier {
+    let radius: CGFloat
+    @ObservedObject private var themes = ThemeStore.shared
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        content
+            .background(shape.fill(themes.current.bg.opacity(0.95)))
+            .background(shape.fill(.regularMaterial))
+            .overlay(alignment: .topTrailing) {
+                ThemeGlyph(theme: themes.current).frame(width: 14, height: 14).opacity(0.55).padding(10).allowsHitTesting(false)
+            }
+            .overlay(shape.strokeBorder(themes.current.accent.opacity(0.35), lineWidth: 1))
+            .environment(\.colorScheme, .dark)
+            .tint(themes.current.accent)
+    }
+}
+
+extension View {
+    func themedSurface(_ radius: CGFloat = 22) -> some View { modifier(ThemedSurface(radius: radius)) }
+}
+
+/// Window background: the theme's near-black, with its faint artwork in the top-right corner.
 struct Backdrop: View {
+    @ObservedObject private var themes = ThemeStore.shared
     var body: some View {
-        ZStack {
-            Color(nsColor: .windowBackgroundColor)
-            RadialGradient(colors: [Theme.accent.opacity(0.20), .clear], center: .topLeading, startRadius: 0, endRadius: 560)
-            RadialGradient(colors: [Theme.accent2.opacity(0.13), .clear], center: .bottomTrailing, startRadius: 0, endRadius: 620)
+        ZStack(alignment: .topTrailing) {
+            themes.current.bg
+            TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
+                MotifLayer(theme: themes.current, time: tl.date.timeIntervalSinceReferenceDate)
+            }
+            .frame(width: 380, height: 320)
         }
         .ignoresSafeArea()
     }
@@ -126,6 +155,7 @@ struct PhoneView: View {
     @ObservedObject var bridge: Bridge
     @ObservedObject private var history = Bridge.shared.history
     @ObservedObject private var batteryWatch = Bridge.shared.batteryWatch
+    @ObservedObject private var themes = ThemeStore.shared
 
     private let tabs: [(PhoneStore.Tab, String, String)] = [
         (.messages, "Messages", "bubble.left.and.bubble.right.fill"),
@@ -151,11 +181,15 @@ struct PhoneView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            rail
-            Rectangle().fill(Theme.stroke).frame(width: 1)
             VStack(spacing: 0) {
                 topBar
-                content
+                ZStack {
+                    content
+                        .id(store.tab)
+                        .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.97, anchor: .bottom)), removal: .opacity))
+                }
+                .animation(.spring(response: 0.42, dampingFraction: 0.86), value: store.tab)
+                    .padding(.bottom, 72)
                     .overlay {
                         if let id = store.viewing, let photo = store.photo(for: id) {
                             PhotoViewer(store: store, photo: photo).transition(.opacity)
@@ -163,6 +197,7 @@ struct PhoneView: View {
                     }
                     .animation(.easeOut(duration: 0.18), value: store.viewing)
             }
+            .overlay(alignment: .bottom) { dock.padding(.bottom, 16) }
             if store.showPanel {
                 Rectangle().fill(Theme.stroke).frame(width: 1)
                 NotificationPanel(bridge: bridge, store: store, history: history)
@@ -179,61 +214,46 @@ struct PhoneView: View {
             Button("") { store.paletteOpen.toggle() }.keyboardShortcut("k", modifiers: .command).opacity(0).frame(width: 0, height: 0)
         }
         .tint(Theme.accent)
+        .preferredColorScheme(.dark)
+        .id(themes.current.id)
+        .overlay { ThemeBurstView() }
+        .coordinateSpace(name: "fx-phone")
+        .environment(\.fxSpace, "phone")
+        .overlay { FxOverlay(space: "phone") }
         .animation(.easeOut(duration: 0.2), value: store.showPanel)
         .frame(minWidth: 1020, minHeight: 640)
-        .onAppear { store.refresh(store.tab) }
-        .onChange(of: store.tab) { _, tab in store.refresh(tab) }
+        .onAppear {
+            store.refresh(store.tab)
+        }
+        .onChange(of: store.tab) { _, tab in
+            store.refresh(tab)
+            FxCenter.shared.fire(.transition, space: "phone")
+        }
         .onChange(of: bridge.connected) { _, up in if up { store.refresh(store.tab) } }
     }
 
-    // MARK: Rail
+    // MARK: Dock
 
-    private var rail: some View {
-        VStack(spacing: 6) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.gradient)
-                Image(systemName: "iphone.gen3.radiowaves.left.and.right").font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+    private var dock: some View {
+        HStack(spacing: 2) {
+            Button { store.tab = .settings } label: {
+                ThemeGlyph(theme: themes.current).frame(width: 26, height: 26).padding(.horizontal, 10)
             }
-            .frame(width: 44, height: 44)
-            .shadow(color: Theme.accent.opacity(0.5), radius: 10, y: 4)
-            .padding(.bottom, 14)
-            ForEach(tabs, id: \.0) { tab, title, icon in navItem(tab, title, icon) }
-            Spacer()
-            navItem(.notifications, "History", "clock.arrow.circlepath")
-            navItem(.settings, "Settings", "gearshape.fill")
+            .buttonStyle(.plain).help("Themes (Settings)")
+            Rectangle().fill(Theme.stroke).frame(width: 1, height: 22).padding(.horizontal, 4)
+            ForEach(tabs, id: \.0) { tab, title, icon in
+                DockItem(title: title, icon: icon, selected: store.tab == tab,
+                         badge: tab == .messages ? store.threads.filter { store.isUnread($0) }.count : 0) { store.tab = tab }
+            }
+            Rectangle().fill(Theme.stroke).frame(width: 1, height: 22).padding(.horizontal, 4)
+            DockItem(title: "History", icon: "clock.arrow.circlepath", selected: store.tab == .notifications, badge: 0) { store.tab = .notifications }
+            DockItem(title: "Settings", icon: "gearshape.fill", selected: store.tab == .settings, badge: 0) { store.tab = .settings }
         }
-        .padding(.top, 46).padding(.bottom, 14).padding(.horizontal, 10)
-        .frame(width: 92)
-        .background(.ultraThinMaterial)
-    }
-
-    private func navItem(_ tab: PhoneStore.Tab, _ title: String, _ icon: String) -> some View {
-        let selected = store.tab == tab
-        let unread = tab == .messages ? store.threads.filter { store.isUnread($0) }.count : 0
-        return Button { store.tab = tab } label: {
-            VStack(spacing: 5) {
-                Image(systemName: icon).font(.system(size: 20, weight: .semibold))
-                Text(title).font(.system(size: 10.5, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.75)
-            }
-            .padding(.horizontal, 4)
-            .foregroundStyle(selected ? Color.white : Color.secondary)
-            .frame(width: 70, height: 56)
-            .background {
-                if selected {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.gradient)
-                        .shadow(color: Theme.accent.opacity(0.45), radius: 10, y: 4)
-                }
-            }
-            .overlay(alignment: .topTrailing) {
-                if unread > 0 {
-                    Text("\(min(unread, 99))").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
-                        .padding(.horizontal, 5).padding(.vertical, 2)
-                        .background(Capsule().fill(Theme.red)).offset(x: -2, y: 4)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+        .padding(6)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.12)))
+        .shadow(color: .black.opacity(0.4), radius: 20, y: 8)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: store.tab)
     }
 
     // MARK: Top bar
@@ -271,14 +291,14 @@ struct PhoneView: View {
                 }
             }
         }
-        .padding(.leading, 26).padding(.trailing, 18).padding(.top, 16).padding(.bottom, 12)
+        .padding(.leading, 26).padding(.trailing, 18).padding(.top, 34).padding(.bottom, 12)
     }
 
     private var phoneChip: some View {
         HStack(spacing: 10) {
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.gradient)
-                Image(systemName: "iphone.gen3").font(.system(size: 13)).foregroundStyle(.white)
+                Image(systemName: "iphone.gen3").font(.system(size: 13)).foregroundStyle(Theme.onAccent)
             }
             .frame(width: 26, height: 34)
             VStack(alignment: .leading, spacing: 2) {
@@ -304,7 +324,7 @@ struct PhoneView: View {
         Button(action: action) {
             Image(systemName: icon).font(.system(size: 14, weight: .semibold))
                 .frame(width: 38, height: 38)
-                .foregroundStyle(on ? Color.white : Color.primary)
+                .foregroundStyle(on ? Theme.onAccent : Color.primary)
                 .background { Circle().fill(on ? Theme.accent : Theme.card) }
                 .overlay(Circle().strokeBorder(Theme.stroke))
         }
@@ -314,7 +334,7 @@ struct PhoneView: View {
 
     @ViewBuilder private var content: some View {
         if !bridge.connected {
-            EmptyState(icon: "iphone.slash", title: "Phone not connected", subtitle: "Open PhoneBridge on your phone — it reconnects by itself.")
+            DiscoveryView(bridge: bridge)
         } else {
             switch store.tab {
             case .messages: MessagesView(store: store)
@@ -325,7 +345,7 @@ struct PhoneView: View {
             case .device: DeviceView(store: store, bridge: bridge, battery: bridge.batteryWatch)
             case .settings:
                 SettingsView(bridge: bridge, store: store, rules: bridge.rules, speech: bridge.speech, battery: bridge.batteryWatch,
-                             focus: bridge.focusLink, history: bridge.history, guardian: bridge.guardian)
+                             focus: bridge.focusLink, history: bridge.history)
             case .notifications: HistoryView(history: bridge.history)
             }
         }
@@ -345,7 +365,7 @@ struct NotificationPanel: View {
             HStack(spacing: 8) {
                 Text("Notifications").font(.system(size: 17, weight: .bold, design: .rounded))
                 if !history.feed.isEmpty {
-                    Text("\(history.feed.count)").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                    Text("\(history.feed.count)").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.onAccent)
                         .padding(.horizontal, 7).padding(.vertical, 2).background(Capsule().fill(Theme.gradient))
                 }
                 Spacer()
@@ -555,7 +575,7 @@ struct MessagesView: View {
                         NSPasteboard.general.setString(msg.body, forType: .string)
                     }
                 }
-                .foregroundStyle(msg.mine ? Color.white : Color.primary)
+                .foregroundStyle(msg.mine ? Theme.onAccent : Color.primary)
                 .padding(.horizontal, 14).padding(.vertical, 9)
                 .background { bubbleShape(msg.mine) }
             if !msg.mine { Spacer(minLength: 90) }
@@ -601,7 +621,7 @@ struct MessagesView: View {
                 .textFieldStyle(.plain).font(.system(size: 14)).lineLimit(1...5)
                 .onSubmit { store.sendDraft() }
             Button { store.sendDraft() } label: {
-                Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
+                Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.onAccent)
                     .frame(width: 34, height: 34)
                     .background { Circle().fill(empty ? AnyShapeStyle(Color.primary.opacity(0.2)) : AnyShapeStyle(Theme.gradient)) }
             }
@@ -899,5 +919,43 @@ struct HistoryView: View {
         }
         .padding(14)
         .card(18)
+    }
+}
+
+final class HoverFlag: ObservableObject { @Published var on = false }
+
+/// One icon in the dock: the selected one grows into a pill with its label, the others magnify a little under the pointer.
+struct DockItem: View {
+    let title: String
+    let icon: String
+    let selected: Bool
+    let badge: Int
+    let action: () -> Void
+    @StateObject private var flag = HoverFlag()
+
+    var body: some View {
+        let hover = flag.on
+        return Button(action: action) {
+            HStack(spacing: 7) {
+                Image(systemName: icon).font(.system(size: 16, weight: .semibold))
+                if selected { Text(title).font(.system(size: 12.5, weight: .semibold)).lineLimit(1).fixedSize() }
+            }
+            .foregroundStyle(selected ? Theme.onAccent : (hover ? Color.primary : Color.secondary))
+            .padding(.horizontal, selected ? 14 : 12).frame(height: 38)
+            .background { if selected { Capsule().fill(Theme.accent) } }
+            .overlay(alignment: .topTrailing) {
+                if badge > 0 {
+                    Text("\(min(badge, 99))").font(.system(size: 9.5, weight: .bold)).foregroundStyle(.white)
+                        .padding(.horizontal, 5).padding(.vertical, 1.5).background(Capsule().fill(Theme.red)).offset(x: 4, y: -3)
+                }
+            }
+            .scaleEffect(hover && !selected ? 1.12 : 1)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .pressFx()
+        .onHover { flag.on = $0 }
+        .animation(.easeOut(duration: 0.12), value: hover)
+        .help(title)
     }
 }

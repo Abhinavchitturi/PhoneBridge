@@ -5,17 +5,14 @@ import org.json.JSONObject
 
 /** Handles messages coming from the Mac (called on the connection's reader thread). */
 object Dispatch {
+    private fun needKeyboard() {
+        Link.send("alert", "title" to "Switch to the PhoneBridge keyboard",
+            "body" to "On the phone: PhoneBridge → Type from Mac, then pick the PhoneBridge keyboard and tap a text box.")
+    }
+
     private fun castInput(m: JSONObject) {
-        val t = TypingService.instance ?: run {
-            Link.send("alert", "title" to "Turn on control from the Mac",
-                "body" to "On the phone: PhoneBridge → Type from Mac → switch on PhoneBridge in Accessibility.")
-            return
-        }
+        val t = TypingKeyboard.instance ?: return needKeyboard()
         when (m.getString("kind")) {
-            "tap" -> t.gesture(m.getDouble("x"), m.getDouble("y"), m.getDouble("x"), m.getDouble("y"), m.optLong("ms", 40))
-            "swipe" -> t.gesture(m.getDouble("x"), m.getDouble("y"), m.getDouble("x2"), m.getDouble("y2"), m.optLong("ms", 300))
-            "nav" -> t.nav(m.getString("action"))
-            "down", "move", "up" -> t.touch(m.getString("kind"), m.getDouble("x"), m.getDouble("y"))
             "text" -> t.type(m.getString("text"), backspace = false)
             "backspace" -> t.type(null, backspace = true)
             "enter" -> t.enter()
@@ -27,13 +24,11 @@ object Dispatch {
         try {
             when (m.optString("t")) {
                 "ping" -> Link.send("pong")
+                "theme" -> ThemeStore.remote(ctx, m.getString("id"))
                 "reply" -> NotifListener.instance?.reply(m.getString("id"), m.getString("text"))
                 "dismiss" -> NotifListener.instance?.dismiss(m.getString("id"))
-                "call_answer" -> Calls.answer(ctx)
-                "call_end" -> Calls.end(ctx)
-                "guard_setup" -> Guard.setup(ctx, m)
-                "guard_off" -> Guard.off(ctx)
-                "guard_alert" -> Guard.onLinkAlert(ctx, m)
+                "call_answer" -> Calls.answer(ctx, m.optBoolean("waiting"))
+                "call_end" -> Calls.end(ctx, m.optBoolean("waiting"))
                 "autoreply_set" -> AutoReply.configure(ctx, m)
                 "autoreply_request" -> AutoReply.report(ctx)
                 "call_ctl" -> Calls.control(ctx, m.getString("action"))
@@ -48,8 +43,8 @@ object Dispatch {
                 "media_cmd" -> MediaWatch.command(m.getString("cmd"))
                 "notif_action" -> NotifListener.instance?.pressAction(m.getString("id"), m.getInt("index"))
                 "clip_image" -> ImageClip.setFromMac(ctx, Crypto.b64d(m.getString("png")))
-                "phone_set_text" -> TypingService.instance?.setText(m.getString("text"))
-                "phone_enter" -> TypingService.instance?.enter()
+                "phone_set_text" -> (TypingKeyboard.instance ?: run { needKeyboard(); null })?.setText(m.getString("text"))
+                "phone_enter" -> (TypingKeyboard.instance ?: run { needKeyboard(); null })?.enter()
                 "sms_threads_request" -> SmsData.sendThreads(ctx)
                 "sms_thread_request" -> SmsData.sendThread(ctx, m.getLong("thread"))
                 "photos_request" -> Photos.sendPage(ctx, m.optInt("offset", 0), m.optInt("limit", 60),
@@ -73,8 +68,6 @@ object Dispatch {
                 "loc_request" -> DeviceTools.sendLocation(ctx)
                 "torch" -> DeviceTools.torch(ctx, m.getBoolean("on"))
                 "ringer" -> DeviceTools.setRinger(ctx, m.getString("mode"))
-                "phone_lock" -> DeviceTools.lock(ctx)
-                "phone_unlock" -> DeviceTools.unlock(ctx, m.optString("pin").takeIf { it.isNotEmpty() })
                 "photo_get" -> Photos.sendFull(ctx, m.getLong("id"))
                 "call_log_request" -> CallData.sendLog(ctx)
                 "contacts_request" -> CallData.sendContacts(ctx)

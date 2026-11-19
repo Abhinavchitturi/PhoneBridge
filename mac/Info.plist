@@ -30,8 +30,6 @@
 	<array>
 		<string>_phonebridge._tcp</string>
 	</array>
-	<key>NSCameraUsageDescription</key>
-	<string>PhoneBridge can take a photo when your Mac wakes or unlocks, and send it to your phone if you are not nearby.</string>
 	<key>NSFocusStatusUsageDescription</key>
 	<string>PhoneBridge can switch your phone to Do Not Disturb when a Focus is on for your Mac.</string>
 	<key>NSLocalNetworkUsageDescription</key>

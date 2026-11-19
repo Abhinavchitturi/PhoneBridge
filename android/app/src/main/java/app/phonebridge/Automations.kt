@@ -109,6 +109,7 @@ object PhoneAlerts {
     fun alert(ctx: Context, title: String, body: String) {
         val n = Notification.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_bridge)
+            .setColor(ThemeStore.get(ctx).accent)
             .setContentTitle(title)
             .setContentText(body)
             .setAutoCancel(true)
@@ -125,6 +126,7 @@ object PhoneAlerts {
         }
         val n = Notification.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_bridge)
+            .setColor(ThemeStore.get(ctx).accent)
             .setContentTitle("From your Mac — tap to open")
             .setContentText(title?.takeIf { it.isNotBlank() } ?: url)
             .setContentIntent(PendingIntent.getActivity(ctx, url.hashCode(), view, PendingIntent.FLAG_IMMUTABLE))

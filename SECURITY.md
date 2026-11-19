@@ -10,11 +10,11 @@ Please **don't** open a public issue for a security problem. Use GitHub's privat
 ## What to look at
 
 - The link protocol and keys: `mac/Sources/Crypto.swift`, `mac/Sources/PhoneLink.swift`, `android/app/src/main/java/app/phonebridge/Crypto.kt`, `Link.kt`.
-- The intruder guard and its relay: `mac/Sources/Guard*.swift`, `android/app/src/main/java/app/phonebridge/Guard*.kt`. Unit tests check that the Mac and the phone derive identical keys, codes and signatures.
+- The walk-away lock: `mac/Sources/Presence.swift` and the phone's beacon in `android/app/src/main/java/app/phonebridge/Automations.kt`.
+- The phone's typing keyboard (`TypingKeyboard` in `Extras.kt`), which only inserts text the paired Mac sends.
 
 ## Known limits
 
 - Not independently audited.
 - A compromised phone or Mac defeats any of this.
-- The intruder guard deters and alerts; it can't stop someone who force-powers-off the Mac or boots into Recovery. Use FileVault and Find My too.
-- The optional guard relay (ntfy) can see that messages exist, their size and timing, and the IP addresses involved, but not their contents.
+- The walk-away lock is a convenience: it won't stop someone who reaches the Mac before it locks or boots into Recovery. Use FileVault and Find My too.

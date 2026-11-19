@@ -100,8 +100,6 @@ struct DeviceView: View {
                 }
                 tool("bell.and.waves.left.and.right", bridge.phoneRinging ? "Stop ringing" : "Ring phone", on: bridge.phoneRinging) { bridge.toggleRing() }
                 tool("moon.fill", "Do Not Disturb", on: bridge.phoneDnd) { bridge.send(["t": "phone_dnd", "on": !bridge.phoneDnd]) }
-                tool("lock.fill", "Lock phone", on: false) { store.send(["t": "phone_lock"]) }
-                tool("lock.open.fill", "Unlock phone", on: false) { store.unlockPhone() }
             }
             HStack(spacing: 4) {
                 ForEach([("normal", "speaker.wave.2.fill", "Ring"), ("vibrate", "iphone.radiowaves.left.and.right", "Vibrate"), ("silent", "speaker.slash.fill", "Silent")], id: \.0) { mode, icon, title in
@@ -109,7 +107,7 @@ struct DeviceView: View {
                     Button { store.send(["t": "ringer", "mode": mode]) } label: {
                         Label(title, systemImage: icon).font(.system(size: 12, weight: .semibold)).lineLimit(1)
                             .frame(maxWidth: .infinity).padding(.vertical, 8)
-                            .foregroundStyle(selected ? Color.white : .primary)
+                            .foregroundStyle(selected ? Theme.onAccent : .primary)
                             .background(Capsule().fill(selected ? Theme.accent : .clear))
                     }
                     .buttonStyle(.plain)
@@ -129,7 +127,7 @@ struct DeviceView: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 12).padding(.vertical, 11)
-            .foregroundStyle(on ? Color.white : .primary)
+            .foregroundStyle(on ? Theme.onAccent : .primary)
             .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(on ? AnyShapeStyle(Theme.gradient) : AnyShapeStyle(Color.primary.opacity(0.07))))
         }
         .buttonStyle(.plain)
@@ -185,7 +183,7 @@ struct DeviceView: View {
         Button(action: action) {
             Label(title, systemImage: icon).font(.system(size: 12.5, weight: .semibold)).fixedSize()
                 .padding(.horizontal, 12).padding(.vertical, 6)
-                .foregroundStyle(prominent ? Color.white : .primary)
+                .foregroundStyle(prominent ? Theme.onAccent : .primary)
                 .background(Capsule().fill(prominent ? Theme.accent : Color.primary.opacity(0.08)))
         }
         .buttonStyle(.plain)

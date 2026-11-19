@@ -1,0 +1,87 @@
+#!/usr/bin/perl
+# pb — talk to PhoneBridge on this Mac from the terminal or a Shortcuts "Run Shell Script" action.
+#   pb send FILE...        send files to the phone
+#   pb ring [on|off]       ring the phone (no argument: toggle)
+#   pb clip [TEXT...]      put text on the phone's clipboard (reads stdin if there's no TEXT or it's "-")
+#   pb status              is the phone connected?
+use strict;
+use warnings;
+use IO::Socket::UNIX;
+use Cwd 'abs_path';
+
+my $sock = ($ENV{HOME} // '') . '/.phonebridge/pb.sock';
+
+sub jstr {
+    my $s = shift;
+    $s =~ s/(["\\])/\\$1/g;
+    $s =~ s/\n/\\n/g;
+    $s =~ s/\r/\\r/g;
+    $s =~ s/\t/\\t/g;
+    $s =~ s/([\x00-\x1f])/sprintf("\\u%04x", ord($1))/ge;
+    return '"' . $s . '"';
+}
+
+sub usage {
+    print STDERR "usage: pb send FILE... | pb ring [on|off] | pb clip [TEXT...] | pb status\n";
+    exit 2;
+}
+
+sub ask {
+    my $json = shift;
+    my $c = IO::Socket::UNIX->new(Peer => $sock, Type => SOCK_STREAM);
+    unless ($c) {
+        print STDERR "PhoneBridge isn't running on this Mac.\n";
+        exit 3;
+    }
+    print $c "$json\n";
+    my $line = <$c>;
+    close $c;
+    unless (defined $line) { print STDERR "No answer from PhoneBridge.\n"; exit 1; }
+    return $line;
+}
+
+sub field {
+    my ($line, $name) = @_;
+    return $1 if $line =~ /"\Q$name\E"\s*:\s*"((?:[^"\\]|\\.)*)"/;
+    return undef;
+}
+
+my $cmd = shift @ARGV // '';
+my $json;
+if ($cmd eq 'send') {
+    usage() unless @ARGV;
+    my @paths;
+    for my $f (@ARGV) {
+        my $p = abs_path($f);
+        unless (defined $p && -f $p) { print STDERR "pb: not a file: $f\n"; exit 1; }
+        push @paths, jstr($p);
+    }
+    $json = '{"cmd":"send","paths":[' . join(',', @paths) . ']}';
+} elsif ($cmd eq 'ring') {
+    my $arg = shift @ARGV;
+    if (!defined $arg) { $json = '{"cmd":"ring"}' }
+    elsif ($arg =~ /^(on|start)$/) { $json = '{"cmd":"ring","on":true}' }
+    elsif ($arg =~ /^(off|stop)$/) { $json = '{"cmd":"ring","on":false}' }
+    else { usage() }
+} elsif ($cmd eq 'clip') {
+    my $text;
+    if (!@ARGV || (@ARGV == 1 && $ARGV[0] eq '-')) { local $/; $text = <STDIN> // ''; $text =~ s/\n\z//; }
+    else { $text = join(' ', @ARGV); }
+    $json = '{"cmd":"clip","text":' . jstr($text) . '}';
+} elsif ($cmd eq 'status') {
+    $json = '{"cmd":"status"}';
+} else {
+    usage();
+}
+
+my $line = ask($json);
+if ($line =~ /"ok"\s*:\s*(true|1)/) {
+    if ($cmd eq 'status') {
+        my $on = $line =~ /"connected"\s*:\s*(true|1)/;
+        print $on ? "connected\n" : "not connected\n";
+        exit($on ? 0 : 1);
+    }
+    exit 0;
+}
+print STDERR 'pb: ' . (field($line, 'error') // 'failed') . "\n";
+exit 1;

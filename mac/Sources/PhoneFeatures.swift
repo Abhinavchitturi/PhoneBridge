@@ -89,8 +89,6 @@ struct CommandPalette: View {
         action("torch", "flashlight.on.fill", store.device?.torch == true ? "Turn phone flashlight off" : "Turn phone flashlight on", "Remote flashlight") {
             store.send(["t": "torch", "on": !(store.device?.torch == true)])
         }
-        action("lockphone", "lock.fill", "Lock my phone", "Screen off, locked") { store.send(["t": "phone_lock"]) }
-        action("unlockphone", "lock.open.fill", "Unlock my phone", "Wake it and enter your PIN") { store.unlockPhone() }
         action("slides", "play.rectangle.fill", "Start photo slideshow", "Full screen, every few seconds") {
             store.tab = .photos
             store.startSlideshow()
@@ -191,7 +189,7 @@ struct CommandPalette: View {
     private func row(_ item: PaletteItem, selected: Bool) -> some View {
         Button { run(item) } label: {
             HStack(spacing: 12) {
-                Image(systemName: item.icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(selected ? Color.white : Theme.accent)
+                Image(systemName: item.icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(selected ? Theme.onAccent : Theme.accent)
                     .frame(width: 32, height: 32)
                     .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(selected ? Theme.accent : Theme.accent.opacity(0.14)))
                 VStack(alignment: .leading, spacing: 1) {
@@ -231,7 +229,7 @@ struct ClipboardView: View {
     private var notepad: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Image(systemName: "note.text").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                Image(systemName: "note.text").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.onAccent)
                     .frame(width: 30, height: 30).background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Theme.gradient))
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Shared notepad").font(.system(size: 16, weight: .bold, design: .rounded))
@@ -329,7 +327,6 @@ struct SettingsView: View {
     @ObservedObject var battery: PhoneBatteryWatch
     @ObservedObject var focus: FocusLink
     @ObservedObject var history: NotificationHistory
-    @ObservedObject var guardian: IntruderGuard
     @ObservedObject var rulesInput = RulesInput.shared
 
     private var seenApps: [String] {
@@ -339,6 +336,10 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                MoreSettingsView(bridge: bridge, streamer: bridge.streamer)
+                section("Appearance", "paintpalette.fill", "Pick a theme. It changes the colours and the small drawings in the corner.") {
+                    ThemePicker()
+                }
                 section("Notifications", "bell.badge.fill", "Muted apps and words still land in History — they just don't pop up or make a sound on the Mac.") {
                     if seenApps.isEmpty {
                         Text("Apps appear here once they've sent you a notification.").font(.callout).foregroundStyle(.secondary)
@@ -395,9 +396,6 @@ struct SettingsView: View {
                         Button("Add") { addReply() }.disabled(store.draftQuickReply.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 }
-                section("Intruder guard", "lock.shield.fill", "Know when someone opens your Mac while you're away, and lock it from your phone.") {
-                    GuardSettingsView(guardian: guardian, bridge: bridge)
-                }
                 section("Missed calls", "phone.arrow.down.left", "When you miss or decline a call, the phone texts the caller back by itself — even with the Mac off. Each number is texted at most once every 4 hours.") {
                     Toggle("Text back when I miss a call", isOn: Binding(get: { store.autoReplyOn }, set: { store.autoReplyOn = $0; store.saveAutoReply() }))
                     TextEditor(text: $store.autoReplyText).font(.system(size: 13.5)).scrollContentBackground(.hidden)
@@ -436,7 +434,7 @@ struct SettingsView: View {
     private func section<C: View>(_ title: String, _ icon: String, _ note: String, @ViewBuilder content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.onAccent)
                     .frame(width: 30, height: 30).background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Theme.gradient))
                 Text(title).font(.system(size: 16, weight: .bold, design: .rounded))
             }

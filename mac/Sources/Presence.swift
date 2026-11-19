@@ -4,7 +4,7 @@ import CryptoKit
 import IOKit.pwr_mgt
 
 /// Watches the phone's Bluetooth LE beacon. When it fades (you walked away) and the Mac has been idle
-/// for a bit, lock the Mac; when it comes back, wake the screen (macOS doesn't let apps unlock — use Touch ID).
+/// for a bit, lock the Mac; when it comes back, wake the screen.
 /// Beacon layout matches android/.../Automations.kt (Presence).
 @MainActor
 final class Presence: NSObject, ObservableObject {

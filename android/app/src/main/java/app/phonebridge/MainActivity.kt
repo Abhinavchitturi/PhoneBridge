@@ -44,164 +44,188 @@ class MainActivity : Activity() {
 
     private lateinit var content: LinearLayout
     private lateinit var c: Palette
+    /** The theme this screen was built with; if the Mac changed it while we were in the background, rebuild on return. */
+    private var shownTheme = ""
     private val refresh = { render() }
 
-    private class Palette(dark: Boolean) {
-        val bg = if (dark) 0xFF0E1016.toInt() else 0xFFF4F5FA.toInt()
-        val card = if (dark) 0xFF1A1D27.toInt() else 0xFFFFFFFF.toInt()
-        val text = if (dark) 0xFFF2F3F7.toInt() else 0xFF14161F.toInt()
-        val muted = if (dark) 0xFF9097A8.toInt() else 0xFF667085.toInt()
-        val line = if (dark) 0xFF2A2E3B.toInt() else 0xFFE6E8F0.toInt()
-        val brand = 0xFF5C6BC0.toInt()
-        val brandDark = 0xFF283593.toInt()
-        val green = 0xFF22C55E.toInt()
-        val orange = 0xFFF59E0B.toInt()
-        val red = 0xFFEF4444.toInt()
-        val chip = if (dark) 0xFF262A38.toInt() else 0xFFEEF0FA.toInt()
+    private class Palette(t: AppTheme) {
+        val bg = t.bg
+        val card = t.card
+        val text = t.text
+        val muted = t.muted
+        val line = t.line
+        val brand = t.accent
+        val brandDark = t.accent2
+        val onBrand = t.onAccent
+        val green = 0xFF30D158.toInt()
+        val orange = 0xFFFF9F0A.toInt()
+        val red = 0xFFFF453A.toInt()
+        val chip = t.chip
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         actionBar?.hide()
         LinkService.start(this)
-        val dark = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
-        c = Palette(dark)
-        if (!dark) {
-            val light = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
-                android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
-            window.insetsController?.setSystemBarsAppearance(light, light)
-        }
+        val theme = ThemeStore.get(this)
+        shownTheme = theme.id
+        c = Palette(theme)
+        // Every theme is dark: light status and navigation bar icons off.
+        window.insetsController?.setSystemBarsAppearance(0,
+            android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)
+        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(c.bg))
 
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(12), dp(18), dp(24))
         }
         val k = Colors.of(this)
-        homeScroll = ScrollView(this).apply { setBackgroundColor(c.bg); addView(content) }
-        galleryView = GuardGalleryView(this, k)
-        galleryScroll = ScrollView(this).apply { setBackgroundColor(c.bg); addView(galleryView) }
-        codeView = GuardCodeView(this, k).apply { setBackgroundColor(c.bg) }
-        notesView = NotesView(this, k).apply { setBackgroundColor(c.bg) }
+        homeScroll = ScrollView(this).apply { isFillViewport = true; addView(content) }
+        settingsContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(12), dp(18), dp(24))
+        }
+        settingsScroll = ScrollView(this).apply { addView(settingsContent) }
+        notesView = NotesView(this, k)
         body = FrameLayout(this)
         bottomBar = buildBottomBar()
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        val root = FrameLayout(this).apply {
             setBackgroundColor(c.bg)
-            addView(body, LinearLayout.LayoutParams(-1, 0, 1f))
-            addView(bottomBar, LinearLayout.LayoutParams(-1, -2))
-            // Drawing edge to edge (Android 15+): leave room for the status bar, the dock above the navigation bar, and the keyboard.
+            addView(body, FrameLayout.LayoutParams(-1, -1))
+            addView(bottomBar, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
+            // Drawing edge to edge (Android 15+): leave room for the status bar, the floating dock above the navigation bar, and the keyboard.
             setOnApplyWindowInsetsListener { v, insets ->
                 val bars = insets.getInsets(WindowInsets.Type.systemBars())
                 val ime = insets.getInsets(WindowInsets.Type.ime()).bottom
                 v.setPadding(0, bars.top, 0, if (ime > 0) ime else 0)
-                bottomBar.setPadding(0, 0, 0, bars.bottom)
+                body.setPadding(0, 0, 0, if (ime > 0) 0 else dp(84) + bars.bottom)
+                bottomBar.setPadding(0, 0, 0, bars.bottom + dp(12))
                 bottomBar.visibility = if (ime > 0) View.GONE else View.VISIBLE
                 insets
             }
         }
         setContentView(root)
+        if (ThemeStore.burstPending) {
+            ThemeStore.burstPending = false
+            // no landing animation while still searching; it plays once a phone is connected
+            if (Link.isConnected) root.addView(BurstView(this, theme), FrameLayout.LayoutParams(-1, -1))
+        }
+        val fx = FxView(this, theme)
+        fxView = fx
+        Fx.view = fx
+        root.addView(fx, FrameLayout.LayoutParams(-1, -1))
         showTab(Tab.HOME)
-        openRequestedTab(intent)
+        // the theme's opening sequence, unless a freshly picked theme is already playing its own
+        if (Link.isConnected) root.post { Fx.openOnce() }   // never while still searching
     }
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        openRequestedTab(intent)
-    }
-
-    /** The guard alert's "Code" button opens the app straight on the code. */
-    private fun openRequestedTab(i: Intent?) {
-        if (i?.getStringExtra("tab") == "code") showTab(Tab.CODE)
+    override fun onDestroy() {
+        if (Fx.view === fxView) Fx.view = null
+        super.onDestroy()
     }
 
     // MARK: Bottom dock
 
-    private enum class Tab { HOME, GUARD, CODE, NOTES }
+    private enum class Tab { HOME, NOTES, SETTINGS }
 
     private var tab = Tab.HOME
     private lateinit var body: FrameLayout
     private lateinit var bottomBar: LinearLayout
     private lateinit var homeScroll: ScrollView
-    private lateinit var galleryScroll: ScrollView
-    private lateinit var galleryView: GuardGalleryView
-    private lateinit var codeView: GuardCodeView
+    private lateinit var settingsContent: LinearLayout
+    private lateinit var settingsScroll: ScrollView
+    private var fxView: FxView? = null
+    private var wasConnected = false
     private lateinit var notesView: NotesView
-    private val tabButtons = HashMap<Tab, Pair<ImageView, TextView>>()
+    private val tabButtons = HashMap<Tab, Triple<View, ImageView, TextView>>()
 
+    /** A floating, rounded dock: icons only, and the selected one grows into a pill with its name. */
     private fun buildBottomBar(): LinearLayout {
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val pill = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply { cornerRadius = dp(30).toFloat(); setColor(c.card); setStroke(dp(1), c.line) }
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            elevation = dp(10).toFloat()
+        }
+        pill.addView(GlyphView(this, ThemeStore.get(this), c.brand).apply { setOnClickListener { showTab(Tab.SETTINGS) } },
+            LinearLayout.LayoutParams(dp(26), dp(26)).apply { leftMargin = dp(10); rightMargin = dp(8) })
         listOf(
-            Triple(Tab.HOME, "Home", R.drawable.ic_tab_home), Triple(Tab.GUARD, "Guard", R.drawable.ic_tab_guard),
-            Triple(Tab.CODE, "Code", R.drawable.ic_tab_key), Triple(Tab.NOTES, "Notes", R.drawable.ic_tab_note),
+            Triple(Tab.HOME, "Home", R.drawable.ic_tab_home),
+            Triple(Tab.NOTES, "Notes", R.drawable.ic_tab_note),
+            Triple(Tab.SETTINGS, "Settings", R.drawable.ic_tab_settings),
         ).forEach { (t, title, icon) ->
             val img = ImageView(this).apply { setImageResource(icon) }
-            val txt = TextView(this).apply { text = title; textSize = 11f; gravity = Gravity.CENTER }
-            tabButtons[t] = img to txt
-            row.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
+            val txt = TextView(this).apply { text = title; textSize = 13f; typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL) }
+            val item = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER
-                background = rippleFor()
+                setPadding(dp(14), dp(10), dp(14), dp(10))
                 isClickable = true
+                Fx.press(this)
                 setOnClickListener { showTab(t) }
-                addView(img, LinearLayout.LayoutParams(dp(24), dp(24)))
-                addView(txt, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(3) })
-            }, LinearLayout.LayoutParams(0, dp(62), 1f))
+                addView(img, LinearLayout.LayoutParams(dp(22), dp(22)))
+                addView(txt, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(7) })
+            }
+            tabButtons[t] = Triple(item, img, txt)
+            pill.addView(item)
         }
         return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(c.card)
-            addView(View(this@MainActivity).apply { setBackgroundColor(c.line) }, LinearLayout.LayoutParams(-1, dp(1)))
-            addView(row)
+            gravity = Gravity.CENTER_HORIZONTAL
+            addView(pill)
         }
     }
 
     private fun showTab(t: Tab) {
-        codeView.stop()
         notesView.stop()
+        val previous = tab
         tab = t
-        if (t == Tab.CODE) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) // no screenshots of the code
-        else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         body.removeAllViews()
-        body.addView(
-            when (t) {
-                Tab.HOME -> homeScroll
-                Tab.GUARD -> galleryScroll
-                Tab.CODE -> codeView
-                Tab.NOTES -> notesView
-            },
-            FrameLayout.LayoutParams(-1, -1),
-        )
+        val view: View = when (t) {
+            Tab.HOME -> homeScroll
+            Tab.NOTES -> notesView
+            Tab.SETTINGS -> settingsScroll
+        }
+        body.addView(view, FrameLayout.LayoutParams(-1, -1))
         when (t) {
             Tab.HOME -> render()
-            Tab.GUARD -> galleryView.refresh()
-            Tab.CODE -> codeView.start()
             Tab.NOTES -> notesView.start()
+            Tab.SETTINGS -> renderSettings()
+        }
+        if (previous != t) {
+            // slide in from the side the tab sits on, and let the theme play its flourish across the screen
+            view.alpha = 0f
+            view.translationX = (if (t.ordinal > previous.ordinal) 1 else -1) * dp(36).toFloat()
+            view.animate().alpha(1f).translationX(0f).setDuration(300).setInterpolator(android.view.animation.DecelerateInterpolator(1.6f)).start()
+            Fx.transition()
         }
         tabButtons.forEach { (key, views) ->
-            val color = if (key == t) c.brand else c.muted
-            views.first.setColorFilter(color)
-            views.second.setTextColor(color)
-            views.second.typeface = Typeface.create("sans-serif-medium", if (key == t) Typeface.BOLD else Typeface.NORMAL)
+            val on = key == t
+            views.first.background = if (on) rounded(c.brand, radius = 22) else null
+            views.second.setColorFilter(if (on) c.onBrand else c.muted)
+            views.third.setTextColor(c.onBrand)
+            views.third.visibility = if (on) View.VISIBLE else View.GONE
         }
     }
 
     override fun onResume() {
         super.onResume()
+        if (ThemeStore.get(this).id != shownTheme) { recreate(); return }
         visible = true
+        ThemeStore.onRemoteChange = { recreate() }
+        ThemeStore.push(this)   // keep the Mac on the same theme
         Link.listeners.add(refresh)
         when (tab) {
             Tab.HOME -> render()
-            Tab.GUARD -> galleryView.refresh()
-            Tab.CODE -> codeView.start()
             Tab.NOTES -> notesView.start()
+            Tab.SETTINGS -> renderSettings()
         }
     }
 
     override fun onPause() {
         visible = false
+        ThemeStore.onRemoteChange = null
         Link.listeners.remove(refresh)
-        codeView.stop()
         notesView.stop()
         super.onPause()
     }
@@ -226,60 +250,96 @@ class MainActivity : Activity() {
     // MARK: Screen
 
     private fun render() {
-        if (tab != Tab.HOME) return // other tabs update themselves
+        if (tab == Tab.SETTINGS) { renderSettings(); return }
+        if (tab != Tab.HOME) return // the notes tab updates itself
+        val connected = Link.isConnected
+        if (connected && !wasConnected && visible) Fx.connect()
+        wasConnected = connected
         content.removeAllViews()
-        content.addView(header())
-        content.addView(statusCard())
+        if (!connected) {
+            // Not connected: just the full-screen searching scene (plus the pairing code once a Mac is found).
+            content.setPadding(0, 0, 0, 0)
+            content.addView(searchingView(), LinearLayout.LayoutParams(-1, 0, 1f))
+            Pairing.pending?.let { content.addView(pairingCard(it).apply { (layoutParams as LinearLayout.LayoutParams).setMargins(dp(18), 0, dp(18), dp(14)) }) }
+            return
+        }
+        content.setPadding(dp(18), dp(12), dp(18), dp(24))
+        content.addView(brandHeader())
+        content.addView(heroCard())
         Pairing.pending?.let { content.addView(pairingCard(it)) }
-        if (Link.isConnected) content.addView(macCard())
-        if (Link.isConnected) content.addView(automationsCard())
-        Prefs.get(this).getString("lastError", null)?.let { content.addView(errorCard(it)) }
-        content.addView(setupCard())
-        content.addView(actionsCard())
+        content.addView(macCard())
     }
 
-    private fun header() = LinearLayout(this).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(4), dp(12), 0, dp(18))
-        addView(ImageView(context).apply {
-            setImageDrawable(packageManager.getApplicationIcon(packageName))
-            layoutParams = LinearLayout.LayoutParams(dp(52), dp(52))
+    /** Everything that isn't a quick action: theme, automations, setup and permissions, the rest. */
+    private fun renderSettings() {
+        settingsContent.removeAllViews()
+        settingsContent.addView(label("Settings", 30f, c.text).apply { typeface = Typeface.SERIF; setPadding(0, dp(8), 0, dp(14)) })
+        settingsContent.addView(sectionTitle("Theme"))
+        settingsContent.addView(ThemeSettingsView(this, { recreate() }, showHeader = false).apply {
+            layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) }
         })
+        Prefs.get(this).getString("lastError", null)?.let { settingsContent.addView(errorCard(it)) }
+        if (Link.isConnected) settingsContent.addView(automationsCard())
+        settingsContent.addView(setupCard())
+        settingsContent.addView(actionsCard())
+    }
+
+    private fun sectionTitle(text: String) = label(text.uppercase(), 11f, c.muted, bold = true).apply { setPadding(dp(4), dp(6), 0, dp(10)); letterSpacing = 0.12f }
+
+    /** Searching screen: the whole screen. Serif headline, the animated orb, a help line, and any moving scene behind it. */
+    private fun searchingView(): View = FrameLayout(this).apply {
         addView(LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), 0, 0, 0)
-            addView(label("PhoneBridge", 24f, c.text, bold = true))
-            addView(label("Your phone, on your Mac", 14f, c.muted))
-        })
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(18), dp(28), dp(18), dp(10))
+            val found = Pairing.pending != null
+            addView(label(if (found) "Found\nyour Mac" else "Looking for\nyour Mac", 34f, c.text).apply {
+                gravity = Gravity.CENTER
+                typeface = Typeface.SERIF
+                setLineSpacing(0f, 1.05f)
+            })
+            addView(OrbView(context, ThemeStore.get(context)), LinearLayout.LayoutParams(-1, 0, 1f))
+            addView(label(
+                if (found) "Check that the 6-digit code matches the one on your Mac, then tap Pair on both."
+                else "Open PhoneBridge on your Mac. Both need to be on the same Wi-Fi.", 14f, c.muted,
+            ).apply { gravity = Gravity.CENTER; setPadding(dp(24), 0, dp(24), dp(18)) })
+            addView(label("Having trouble finding your Mac?", 13f, c.muted).apply { gravity = Gravity.CENTER; setPadding(0, 0, 0, dp(10)) })
+            addView(pill("Wi-Fi settings", filled = false) { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) }
+                .apply { (layoutParams as LinearLayout.LayoutParams).gravity = Gravity.CENTER_HORIZONTAL })
+        }, FrameLayout.LayoutParams(-1, -1))
     }
 
-    private fun statusCard(): View {
-        val connected = Link.isConnected
-        val card = card(
-            if (connected) gradient(c.brand, c.brandDark) else rounded(c.card),
-        )
-        val dotColor = if (connected) c.green else c.orange
-        card.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(View(context).apply {
-                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(dotColor) }
-                layoutParams = LinearLayout.LayoutParams(dp(10), dp(10)).apply { rightMargin = dp(10) }
-            })
-            addView(label(if (connected) "Connected" else "Not connected", 13f,
-                if (connected) 0xCCFFFFFF.toInt() else c.muted, bold = true))
-        })
-        val title = if (connected) Link.status.removePrefix("Connected to ") else "Waiting for your Mac"
-        card.addView(label(title, 22f, if (connected) 0xFFFFFFFF.toInt() else c.text, bold = true).apply {
-            setPadding(0, dp(8), 0, dp(4))
-        })
-        card.addView(label(
-            if (connected) "Notifications, calls, clipboard and files are synced."
-            else "Open PhoneBridge on your Mac. Both devices need to be on the same Wi-Fi, or the Mac on this phone's hotspot.",
-            14f, if (connected) 0xDDFFFFFF.toInt() else c.muted,
-        ))
-        return card
+    /** Centred logo, name and connection line. */
+    private fun brandHeader(): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER_HORIZONTAL
+        setPadding(0, dp(10), 0, dp(18))
+        addView(FrameLayout(context).apply {
+            background = GradientDrawable().apply { cornerRadius = dp(22).toFloat(); setColor(c.card); setStroke(dp(1), c.line) }
+            addView(GlyphView(context, ThemeStore.get(context), c.brand), FrameLayout.LayoutParams(dp(34), dp(34), Gravity.CENTER))
+        }, LinearLayout.LayoutParams(dp(68), dp(68)))
+        addView(label("PhoneBridge", 28f, c.text).apply { typeface = Typeface.SERIF; gravity = Gravity.CENTER; setPadding(0, dp(12), 0, dp(2)) })
+        addView(label(if (Link.isConnected) "Connected" else "Not connected", 13f, if (Link.isConnected) c.green else c.muted).apply { gravity = Gravity.CENTER })
+    }
+
+    /** The animated scene for the chosen theme, with the Mac's name over it. */
+    private fun heroCard(): View = FrameLayout(this).apply {
+        background = GradientDrawable().apply { cornerRadius = dp(24).toFloat(); setColor(c.card) }
+        clipToOutline = true
+        layoutParams = LinearLayout.LayoutParams(-1, dp(200)).apply { bottomMargin = dp(16) }
+        addView(HeroView(context, ThemeStore.get(context)), FrameLayout.LayoutParams(-1, -1))
+        addView(View(context).apply { background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0, 0x99000000.toInt())) },
+            FrameLayout.LayoutParams(-1, dp(100), Gravity.BOTTOM))
+        addView(LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), 0, dp(18), dp(16))
+            addView(label(Link.status.removePrefix("Connected to "), 22f, 0xFFFFFFFF.toInt()).apply { typeface = Typeface.SERIF; maxLines = 1 })
+            val sub = buildString {
+                append("Notifications, calls, clipboard and files are synced")
+                MacRemote.battery?.let { append(" · Mac $it%") }
+            }
+            addView(label(sub, 12f, 0xB3FFFFFF.toInt()))
+        }, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START))
     }
 
     private fun macCard(): View {
@@ -288,45 +348,42 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             addView(label("Your Mac", 18f, c.text, bold = true), weighted())
-            MacRemote.battery?.let { addView(label("🔋 $it%${if (MacRemote.charging) " ⚡" else ""}", 13f, c.muted)) }
+            MacRemote.battery?.let { addView(label("$it%${if (MacRemote.charging) " · charging" else ""}", 13f, c.muted)) }
         })
 
         card.addView(tileRow(
-            Triple("🔒", "Lock") { MacRemote.command("lock"); toast("Mac locked") },
-            Triple("🌙", "Sleep") { MacRemote.command("sleep") },
-            if (MacRemote.finding) Triple("⏹", "Stop sound") { MacRemote.command("find_stop") }
-            else Triple("📍", "Find Mac") { MacRemote.command("find"); toast("Playing a sound on your Mac — tap again to stop") },
+            Triple(LineIcon.LOCK, "Lock") { MacRemote.command("lock"); toast("Mac locked") },
+            Triple(LineIcon.MOON, "Sleep") { MacRemote.command("sleep") },
+            if (MacRemote.finding) Triple(LineIcon.STOP, "Stop sound") { MacRemote.command("find_stop") }
+            else Triple(LineIcon.PIN, "Find Mac") { MacRemote.command("find"); toast("Playing a sound on your Mac — tap again to stop") },
         ))
         MacRemote.nowPlaying?.let { card.addView(macNowPlaying(it)) }
         val playing = MacRemote.nowPlaying?.playing
         card.addView(tileRow(
-            Triple("⏮", "Previous") { MacRemote.command("prev") },
-            when (playing) {
-                true -> Triple("⏸", "Pause") { MacRemote.command("play_pause") }
-                false -> Triple("▶️", "Play") { MacRemote.command("play_pause") }
-                null -> Triple("⏯", "Play/Pause") { MacRemote.command("play_pause") }
-            },
-            Triple("⏭", "Next") { MacRemote.command("next") },
+            Triple(LineIcon.PREV, "Previous") { MacRemote.command("prev") },
+            if (playing == true) Triple(LineIcon.PAUSE, "Pause") { MacRemote.command("play_pause") }
+            else Triple(LineIcon.PLAY, if (playing == false) "Play" else "Play/Pause") { MacRemote.command("play_pause") },
+            Triple(LineIcon.NEXT, "Next") { MacRemote.command("next") },
         ))
         card.addView(tileRow(
-            if (MicStreamer.running) Triple("🔴", "Stop mic") { MicStreamer.stop(); render() }
-            else Triple("🎙", "Mic to Mac") { startMic() },
-            Triple("📄", "Scan to Mac") { startScan() },
-            Triple("⌨️", if (TypingService.instance != null) "Type: on" else "Type from Mac") { typeFromMac() },
+            if (MicStreamer.running) Triple(LineIcon.STOP, "Stop mic") { MicStreamer.stop(); render() }
+            else Triple(LineIcon.MIC, "Mic to Mac") { startMic() },
+            Triple(LineIcon.SCAN, "Scan to Mac") { startScan() },
+            Triple(LineIcon.KEYBOARD, if (TypingKeyboard.isActive(this)) "Type: on" else "Type from Mac") { typeFromMac() },
         ))
         card.addView(tileRow(
-            Triple("🖱", "Trackpad & keys") { startActivity(Intent(this, RemoteActivity::class.java)) },
-            Triple("🌐", "Mac's tab") { MacRemote.command("tab_request") },
-            Triple("📋", "Clipboard") {
+            Triple(LineIcon.MOUSE, "Trackpad") { startActivity(Intent(this, RemoteActivity::class.java)) },
+            Triple(LineIcon.GLOBE, "Mac's tab") { MacRemote.command("tab_request") },
+            Triple(LineIcon.CLIPBOARD, "Clipboard") {
                 val ok = Clip.sendCurrent(this)
                 toast(if (ok) "Sent to your Mac" else "Clipboard is empty")
             },
         ))
         val vol = MacRemote.volume?.let { if (MacRemote.muted) "Muted" else "$it%" } ?: "Volume"
         card.addView(tileRow(
-            Triple("🔉", "Vol −") { MacRemote.command("vol_down") },
-            Triple(if (MacRemote.muted) "🔇" else "🔈", vol) { MacRemote.command("mute") },
-            Triple("🔊", "Vol +") { MacRemote.command("vol_up") },
+            Triple(LineIcon.VOL_DOWN, "Vol −") { MacRemote.command("vol_down") },
+            Triple(if (MacRemote.muted) LineIcon.MUTE else LineIcon.VOL_UP, vol) { MacRemote.command("mute") },
+            Triple(LineIcon.VOL_UP, "Vol +") { MacRemote.command("vol_up") },
         ))
 
         // Mac Shortcuts: run any shortcut from the Mac's Shortcuts app
@@ -418,29 +475,42 @@ class MainActivity : Activity() {
     }
 
     private fun typeFromMac() {
-        if (TypingService.instance == null) {
-            toast("Turn on PhoneBridge under Installed apps / Downloaded apps")
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        } else {
-            toast("On your Mac: PhoneBridge → Type on phone. Tap a text box here first.")
+        val imm = getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+        when {
+            !TypingKeyboard.isEnabled(this) -> {
+                toast("Switch on “PhoneBridge keyboard”, then come back")
+                startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+            }
+            !TypingKeyboard.isActive(this) -> {
+                toast("Pick PhoneBridge keyboard, then tap a text box")
+                imm.showInputMethodPicker()
+            }
+            else -> toast("On your Mac: PhoneBridge → Type on phone. Tap a text box first.")
         }
     }
 
-    private fun tileRow(vararg tiles: Triple<String, String, () -> Unit>) = LinearLayout(this).apply {
+    /** A row of up to three actions: a round line icon above a short label, on a soft tile. */
+    private fun tileRow(vararg tiles: Triple<LineIcon, String, () -> Unit>) = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) }
+        val soft = (c.brand and 0x00FFFFFF) or (0x24 shl 24)
         tiles.forEachIndexed { i, (icon, title, action) ->
             if (i > 0) addView(space(dp(10)))
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
-                background = rounded(c.chip, radius = 16)
-                setPadding(0, dp(12), 0, dp(12))
+                background = GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(c.chip); setStroke(dp(1), c.line) }
+                setPadding(dp(4), dp(14), dp(4), dp(12))
                 isClickable = true
+                foreground = rippleFor()
+                Fx.press(this)
                 setOnClickListener { action() }
-                addView(label(icon, 20f, c.text).apply { gravity = Gravity.CENTER })
-                addView(label(title, 12f, c.muted).apply { gravity = Gravity.CENTER; setPadding(0, dp(4), 0, 0) })
-            }, weighted())
+                addView(FrameLayout(context).apply {
+                    background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(soft) }
+                    addView(IconView(context, icon, c.brand), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+                }, LinearLayout.LayoutParams(dp(44), dp(44)))
+                addView(label(title, 12f, c.text).apply { gravity = Gravity.CENTER; setPadding(0, dp(8), 0, 0); maxLines = 1 })
+            }, LinearLayout.LayoutParams(0, -2, 1f))
         }
     }
 
@@ -458,6 +528,9 @@ class MainActivity : Activity() {
                 addView(label(subtitle, 13f, c.muted))
             }, weighted())
             addView(android.widget.Switch(context).apply {
+                val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
+                thumbTintList = android.content.res.ColorStateList(states, intArrayOf(c.onBrand, c.muted))
+                trackTintList = android.content.res.ColorStateList(states, intArrayOf(c.brand, c.line))
                 isChecked = Automations.enabled(this@MainActivity, key)
                 setOnCheckedChangeListener { _, on -> Automations.set(this@MainActivity, key, on) }
             })
@@ -637,6 +710,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(12), 0, dp(12))
             isClickable = true
             background = rippleFor()
+            Fx.press(this)
             setOnClickListener { onClick() }
             addView(label(title, 16f, if (danger) c.red else c.text, bold = true))
             addView(label(subtitle, 13f, c.muted))
@@ -652,14 +726,14 @@ class MainActivity : Activity() {
     private fun rounded(color: Int, radius: Int = 22, stroke: Int? = null) = GradientDrawable().apply {
         cornerRadius = dp(radius).toFloat()
         setColor(color)
-        if (stroke != null) setStroke(dp(2), stroke)
+        if (stroke != null) setStroke(dp(2), stroke) else if (color == c.card) setStroke(dp(1), c.line)
     }
 
     private fun gradient(from: Int, to: Int) =
         GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(from, to)).apply { cornerRadius = dp(22).toFloat() }
 
     private fun pill(text: String, filled: Boolean, compact: Boolean = false, onClick: () -> Unit) =
-        label(text, if (compact) 14f else 15f, if (filled) 0xFFFFFFFF.toInt() else c.text, bold = true).apply {
+        label(text, if (compact) 14f else 15f, if (filled) c.onBrand else c.text, bold = true).apply {
             gravity = Gravity.CENTER
             background = GradientDrawable().apply {
                 cornerRadius = dp(100).toFloat()
@@ -668,6 +742,7 @@ class MainActivity : Activity() {
             val v = if (compact) 8 else 12
             setPadding(dp(18), dp(v), dp(18), dp(v))
             isClickable = true
+            Fx.press(this)
             setOnClickListener { onClick() }
             layoutParams = LinearLayout.LayoutParams(-2, -2)
         }
@@ -687,9 +762,11 @@ class MainActivity : Activity() {
         if (bold) typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     }
 
-    private fun rippleFor(): Drawable? {
-        val attrs = obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackground))
-        return attrs.getDrawable(0).also { attrs.recycle() }
+    /** A press highlight in the theme's colour, clipped to rounded corners (no grey rectangle). */
+    private fun rippleFor(radius: Int = 18): Drawable? {
+        val mask = GradientDrawable().apply { cornerRadius = dp(radius).toFloat(); setColor(0xFFFFFFFF.toInt()) }
+        val tint = (c.brand and 0x00FFFFFF) or (0x40 shl 24)
+        return android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(tint), null, mask)
     }
 
     private fun weighted() = LinearLayout.LayoutParams(0, -2, 1f)

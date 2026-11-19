@@ -6,96 +6,70 @@ import SwiftUI
 /// Hold / End. Used instead of a notification so the buttons are always visible.
 @MainActor
 final class CallPanel: ObservableObject {
-    @Published var name: String?
-    @Published var number: String?
-    @Published var detail: String?
-    /// Calls you started from the Mac: "Calling…" until the phone reports the call is on.
-    @Published var outgoing = false
-    @Published var connected = false
-    /// A call is on (answered or dialled). Shows the in-call card with its timer.
-    @Published var active = false
-    /// The other side has picked up — only then does the timer run.
-    @Published var answered = false
-    @Published var startedAt: Date?
+    /// All the call rules live in CallLogic (see Tests/call-logic-check.swift).
+    @Published private var logic = CallLogic()
     @Published var muted = false
     @Published var speaker = false
     @Published var held = false
 
+    var name: String? { logic.name }
+    var number: String? { logic.number }
+    var detail: String? { logic.detail }
+    /// Calls you started from the Mac: "Calling…" until the phone reports the call is on.
+    var outgoing: Bool { logic.outgoing }
+    /// A call is on (answered or dialled). Shows the in-call card.
+    var active: Bool { logic.active }
+    /// The other side is on the line — only then does the timer run.
+    var answered: Bool { logic.answered }
+    var startedAt: Date? { logic.startedAt }
+    /// A second call, ringing while you're on one.
+    var waiting: WaitingCaller? { logic.waiting }
+    var heldCaller: String? { logic.heldCaller }
+
     var onAnswer: () -> Void = {}
     var onDecline: () -> Void = {}
+    /// Answer / decline the second, waiting call (the phone keeps the call you're on).
+    var onAnswerWaiting: () -> Void = {}
+    var onDeclineWaiting: () -> Void = {}
     /// "mute" / "speaker" / "hold" — the phone does the work and reports back with the real state.
     var onControl: (String) -> Void = { _ in }
     /// (name, number, seconds) when a call that was picked up has finished.
     var onEnded: (String?, String?, Int) -> Void = { _, _, _ in }
-    private var lastCaller: (name: String?, number: String?)?
 
     private var panel: NSPanel?
     private var ringTimer: Timer?
 
-    private func finish() {
-        defer { lastCaller = nil }
-        guard answered, let who = lastCaller, let start = startedAt else { return }
-        onEnded(name ?? who.name, number ?? who.number, Int(Date().timeIntervalSince(start)))
-    }
-
-    /// Phone sends "call" from two sources (dialer notification and phone-state broadcast); merge them.
+    /// The phone sends "call" reports (the call's state, who's on it, whether the other side picked up, a waiting call).
     func update(_ m: [String: Any]) {
-        let state = m["state"] as? String ?? "idle"
-        if state == "idle" {
-            finish()
+        let hadWaiting = logic.waiting != nil
+        switch logic.update(m) {
+        case .none:
+            return
+        case .hide:
             hide()
-            return
-        }
-        if let n = m["name"] as? String, !n.isEmpty { name = n }
-        if let n = m["number"] as? String, !n.isEmpty { number = n }
-        if let d = m["detail"] as? String, !d.isEmpty { detail = d }
-        if state == "active" {
-            if !active { beginActive() }
-            noteConnected(m)
-            return
-        }
-        // Ringing: ignore while we're already on a call or dialling one.
-        if outgoing || active { return }
-        lastCaller = (name, number)
-        show()
-    }
-
-    /// Incoming calls you answered are connected at once; for calls you made, wait for the phone to say the other side picked up.
-    private func beginActive() {
-        let wasRinging = lastCaller != nil && !outgoing
-        active = true
-        connected = true
-        answered = wasRinging
-        startedAt = wasRinging ? Date() : nil
-        ringTimer?.invalidate()
-        ringTimer = nil
-        lastCaller = (name ?? lastCaller?.name, number ?? lastCaller?.number)
-        show(ring: false)
-    }
-
-    private func noteConnected(_ m: [String: Any]) {
-        guard m["connected"] as? Bool == true else { return }
-        let since = (m["since"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
-        if !answered {
-            answered = true
-            startedAt = since ?? Date()
-        } else if let since, let s = startedAt, abs(since.timeIntervalSince(s)) > 1, since < s.addingTimeInterval(5) {
-            startedAt = since // the dialer's own start time is the more exact one
+        case .ended(let name, let number, let seconds):
+            hide()
+            onEnded(name, number, seconds)
+        case .show:
+            if logic.active {
+                ringTimer?.invalidate()
+                ringTimer = nil
+                show(ring: false)
+                if logic.waiting != nil && !hadWaiting { NSSound(named: "Glass")?.play() }
+            } else {
+                show()
+            }
         }
     }
 
     /// Dialled from the Mac: show who we're calling, without ringing.
     func showOutgoing(name: String?, number: String) {
         hide()
-        outgoing = true
-        connected = false
-        self.name = name
-        self.number = number
-        lastCaller = (name, number)
+        logic.startOutgoing(name: name, number: number)
         show(ring: false)
         // If the phone never reports the call (e.g. it failed to dial), don't leave the card up forever.
         DispatchQueue.main.asyncAfter(deadline: .now() + 45) { [weak self] in
-            if self?.outgoing == true, self?.active == false { self?.hide() }
+            if self?.logic.outgoing == true, self?.logic.active == false { self?.hide() }
         }
     }
 
@@ -117,7 +91,7 @@ final class CallPanel: ObservableObject {
     }
 
     private func show(ring: Bool = true) {
-        let size = active ? NSSize(width: 360, height: 168) : NSSize(width: 360, height: 92)
+        let size = active ? NSSize(width: 360, height: logic.waiting != nil ? 232 : 168) : NSSize(width: 360, height: 92)
         if panel == nil {
             let p = NSPanel(contentRect: NSRect(origin: .zero, size: size),
                             styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
@@ -147,14 +121,7 @@ final class CallPanel: ObservableObject {
         ringTimer = nil
         panel?.orderOut(nil)
         panel = nil // next call gets a fresh, correctly sized card
-        name = nil
-        number = nil
-        detail = nil
-        outgoing = false
-        connected = false
-        active = false
-        answered = false
-        startedAt = nil
+        logic = CallLogic()
         muted = false
         speaker = false
         held = false
@@ -164,6 +131,17 @@ final class CallPanel: ObservableObject {
     func decline() { onDecline(); hide() }
     /// End an ongoing call. The card goes away when the phone reports the call is over.
     func hangUp() { onDecline() }
+
+    func answerWaiting() {
+        logic.willAnswerWaiting()
+        onAnswerWaiting()
+    }
+
+    func declineWaiting() {
+        onDeclineWaiting()
+        logic.waiting = nil // the phone's next report confirms it
+        show(ring: false)
+    }
 }
 
 private struct CallCard: View {
@@ -201,7 +179,7 @@ private struct RingingCard: View {
         }
         .padding(.horizontal, 16)
         .frame(width: 360, height: 92)
-        .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(.regularMaterial))
+        .themedSurface(22)
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(.white.opacity(0.08)))
     }
 }
@@ -215,6 +193,7 @@ private struct ActiveCallCard: View {
     private var subtitle: String {
         if model.held { return "On hold" }
         if !model.answered { return model.detail.flatMap { $0.isEmpty ? nil : $0 } ?? "Calling…" }
+        if let onHold = model.heldCaller { return "\(onHold) on hold" }
         if let number = model.number, number != title { return number }
         return "On call"
     }
@@ -226,6 +205,7 @@ private struct ActiveCallCard: View {
 
     var body: some View {
         VStack(spacing: 14) {
+            if let w = model.waiting { waitingRow(w) }
             HStack(spacing: 12) {
                 Avatar(name: title, size: 44)
                 VStack(alignment: .leading, spacing: 2) {
@@ -251,7 +231,6 @@ private struct ActiveCallCard: View {
             HStack(spacing: 10) {
                 control("mic.slash.fill", "Mute", on: model.muted) { model.control("mute") }
                 control("speaker.wave.3.fill", "Speaker", on: model.speaker) { model.control("speaker") }
-                control("pause.fill", "Hold", on: model.held) { model.control("hold") }
                 Button { model.hangUp() } label: {
                     VStack(spacing: 4) {
                         Image(systemName: "phone.down.fill").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
@@ -264,16 +243,40 @@ private struct ActiveCallCard: View {
             }
         }
         .padding(.horizontal, 16)
-        .frame(width: 360, height: 168)
-        .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(.regularMaterial))
+        .frame(width: 360, height: model.waiting != nil ? 232 : 168)
+        .themedSurface(24)
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(.white.opacity(0.08)))
+    }
+
+    /// A second call ringing: its own Answer / Decline, so the call you're on is never touched by accident.
+    private func waitingRow(_ w: WaitingCaller) -> some View {
+        let who = w.name ?? w.number ?? "Someone"
+        return HStack(spacing: 10) {
+            Image(systemName: "phone.arrow.down.left").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.accent)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(who).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                Text("Call waiting").font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 4)
+            Button { model.declineWaiting() } label: {
+                Image(systemName: "phone.down.fill").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    .frame(width: 34, height: 34).background(Circle().fill(Theme.red))
+            }.buttonStyle(.plain).help("Decline the waiting call")
+            Button { model.answerWaiting() } label: {
+                Image(systemName: "phone.fill").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    .frame(width: 34, height: 34).background(Circle().fill(Theme.green))
+            }.buttonStyle(.plain).help("Answer the waiting call (the current call is put on hold)")
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.primary.opacity(0.08)))
+        .padding(.top, 12)
     }
 
     private func control(_ icon: String, _ title: String, on: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 4) {
                 Image(systemName: icon).font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(on ? Color.white : .primary)
+                    .foregroundStyle(on ? Theme.onAccent : .primary)
                     .frame(width: 44, height: 40)
                     .background(Capsule().fill(on ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.primary.opacity(0.1))))
                 Text(title).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)

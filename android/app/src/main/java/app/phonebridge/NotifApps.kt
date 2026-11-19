@@ -43,10 +43,10 @@ class NotifAppsActivity : Activity() {
     private var query = ""
     private var dark = false
 
-    private val bg get() = if (dark) 0xFF0E1016.toInt() else 0xFFF4F5FA.toInt()
-    private val card get() = if (dark) 0xFF1A1D27.toInt() else 0xFFFFFFFF.toInt()
-    private val text get() = if (dark) 0xFFF2F3F7.toInt() else 0xFF14161F.toInt()
-    private val muted get() = if (dark) 0xFF9097A8.toInt() else 0xFF667085.toInt()
+    private val bg get() = ThemeStore.get(this).bg
+    private val card get() = ThemeStore.get(this).card
+    private val text get() = ThemeStore.get(this).text
+    private val muted get() = ThemeStore.get(this).muted
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

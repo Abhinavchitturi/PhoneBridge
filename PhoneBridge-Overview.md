@@ -8,7 +8,7 @@ PhoneBridge connects a MacBook (macOS 27) to an Android phone (developed on a Sa
 ## Features
 
 ### Calls and messages
-- Incoming calls show a floating card on the Mac with the contact's name: Answer, Decline, Mute, Hold, Speaker, End, and a talk timer.
+- Incoming calls show a floating card on the Mac with the contact's name: Answer, Decline, Mute, Speaker, End, and a talk timer.
 - A card stays in the corner for the whole call (time talked starts when the other side answers); a "Call ended" notification offers **Text back** and **Call back**.
 - Start calls from the Mac. The voice stays on the phone.
 - Read and send SMS from the Mac; view the call log.
@@ -31,7 +31,7 @@ PhoneBridge connects a MacBook (macOS 27) to an Android phone (developed on a Sa
 
 ### Photos and phone data
 - Browse the phone's whole photo/video library on the Mac, grouped by day and album; play videos, download, delete, drag out to Finder, copy the text out of a photo, or run a slideshow.
-- Device tab: battery (with time to full and low/full alerts), storage and largest videos, flashlight, ringer, lock and unlock the phone, Find my phone on a map.
+- Device tab: battery (with time to full and low/full alerts), storage and largest videos, flashlight, ringer, Find my phone on a map.
 - ⌘K command palette to search everything on the phone.
 
 ### Phone apps and screen on the Mac
@@ -42,42 +42,41 @@ PhoneBridge connects a MacBook (macOS 27) to an Android phone (developed on a Sa
 ### Phone as a remote for the Mac
 - Trackpad, keyboard and slide clicker.
 - Run Mac commands (media controls, lock, etc.).
-- Shared notepad (newest edit wins); type on the Mac into the phone; hand off browser tabs from the Mac to the phone.
+- Shared notepad (newest edit wins); type on the Mac into the phone (through the PhoneBridge keyboard, which you select on the phone first); hand off browser tabs from the Mac to the phone.
 
 ### Media
 - Now-playing on each device shows on the other, with album art, title, and play/pause/skip.
 - Mac music pauses automatically when a call starts and resumes afterwards.
 
+### Look and themes
+- Minimal, dark, Apple-style, with a floating dock on both the phone and the Mac.
+- Six themes (Midnight, Batman, Spider-Man, Iron Man, Thor, Matrix), each with its own artwork and animation (bats flapping across, a spider on its thread, a pulsing arc reactor, lightning, falling code) plus a short burst when you pick it. The theme is shared: pick it on the phone and the Mac (and its menu bar icon) switch too, and the other way round. The home screen has an animated banner per theme (Spider-Man swinging across between buildings, Iron Man flying with a reactor beam, Thor catching his hammer, the Bat-signal and the Batmobile, a Midnight bridge with data packets, Matrix code rain). Buttons puff out a small themed effect and tick on press, changing tabs plays a themed flourish, and picking a theme, opening the app and connecting each play that theme's character sequence (Thor drops in with lightning, looks up and leaps off; Spider-Man swings in, lands, looks up and swings away; Iron Man lands, looks up, fires missiles and flies off; Batman brings the signal, bats and the Batmobile; Matrix rains code; Midnight draws a constellation bridge). The long settings live in Settings. Phone: Themes tab. Mac: Settings → Appearance.
+
 ### The phone app
-- A bottom bar with **Home** (status, setup, quick actions), **Guard** (today's intruder alerts), **Code** (the rolling unlock code) and **Notes** (the shared notepad).
+- A floating dock with **Home** (status, setup, quick actions), **Notes** (the shared notepad) and **Themes**.
 
 ### Automations (each can be switched off)
-- Walk away with the phone and the Mac locks; come back and the screen wakes (Bluetooth LE beacon; unlock is still via Touch ID).
+- Walk away with the phone and the Mac locks; come back and the screen wakes (Bluetooth LE beacon).
 - Low phone battery alerts the Mac.
 - A call mutes the Mac.
 - A Focus on the Mac can turn on Do Not Disturb on the phone.
-
-### Intruder guard (off by default)
-- When the Mac wakes, unlocks or starts, it takes a few photos. They are stored only on the Mac and deleted at the end of each day; the phone shows them while you look and keeps nothing.
-- If your phone isn't near, you get an alert with the photo and **It's me**, **Code** and **Lock Mac** buttons — over the paired link, or when the Mac is elsewhere through an encrypted relay (a public ntfy server by default, or your own).
-- The Mac can lock itself after sleep, restart or startup (every time, or only when your phone isn't near). The lock screen opens with **It's me** from the phone, a rolling authenticator code from the phone (works offline; also works in Google/Microsoft Authenticator), or a one-time recovery code.
-- Quitting PhoneBridge or weakening the guard needs the code. It deters and alerts; it can't stop someone who force-powers-off the Mac or boots into Recovery, so also use FileVault and Find My.
 
 ### Security
 - Pairing shows a matching 6-digit code on both devices.
 - After pairing, all traffic is end-to-end encrypted (X25519 key exchange + AES-256-GCM).
 - Fresh keys for every connection (forward secrecy). Secrets are stored in the Mac Keychain and Android Keystore.
-- No PhoneBridge servers and no account. The only internet traffic is the optional guard relay, and its payloads are encrypted and signed with a key only your two devices share.
+- No PhoneBridge servers and no account, and nothing goes over the internet.
 - Not independently audited; see `SECURITY.md` and the Security and privacy section of the README.
 
 ## How it connects
-The phone listens on TCP port 47800 and advertises itself via Bonjour (`_phonebridge._tcp`). The Mac tries Bonjour, then the last address that worked, then the default gateway (the phone, when the Mac is on its hotspot). Reaching the phone over Tailscale is also supported. The README has diagrams of the architecture, the pairing handshake and the guard flow.
+The phone listens on TCP port 47800 and advertises itself via Bonjour (`_phonebridge._tcp`). The Mac tries Bonjour, then the last address that worked, then the default gateway (the phone, when the Mac is on its hotspot). Reaching the phone over Tailscale is also supported. The README has diagrams of the architecture and the pairing handshake.
 
 ## Project layout
 | Folder | Contents |
 |---|---|
 | `mac/` | Menu-bar app (builds without Xcode via `mac/build.sh`) |
-| `android/` | Companion app (`./gradlew assembleDebug`) |
+| `android/` | Companion app (`./gradlew assembleRelease`) |
+| `PhoneBridge.apk` | Prebuilt phone app (release, stable signing key) |
 | `README.md`, `SECURITY.md`, `LICENSE` | Setup guide and diagrams, how to report security problems, MIT license |
 
 ## Notes

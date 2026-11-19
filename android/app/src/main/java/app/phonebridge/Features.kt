@@ -67,16 +67,14 @@ object Calls {
                 pickedUp = false
             }
         }
-        val n = lastNumber
-        Link.send("call", "state" to state, "number" to n, "name" to n?.let { contactName(ctx, it) })
-        Automations.onCallState(ctx, state)
+        CallReporter.telephony(ctx, when (state) { "ringing" -> 1; "active" -> 2; else -> 0 }, number)
         if (state == "idle") {
             lastNumber = null
             resetAfterCall(ctx)
         }
     }
 
-    private fun contactName(ctx: Context, number: String): String? = try {
+    internal fun contactName(ctx: Context, number: String): String? = try {
         val uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(number))
         ctx.contentResolver.query(uri, arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null)?.use {
             if (it.moveToFirst()) it.getString(0) else null
@@ -85,10 +83,10 @@ object Calls {
         null
     }
 
-    // Prefer pressing the dialer's own button; fall back to the Telecom API.
+    // Prefer pressing the dialer's own button; fall back to the Telecom API (which answers the ringing call, holding the current one).
     @Suppress("DEPRECATION")
-    fun answer(ctx: Context) {
-        if (NotifListener.instance?.pressCallButton(answer = true) == true) return
+    fun answer(ctx: Context, waiting: Boolean = false) {
+        if (NotifListener.instance?.pressCallButton(answer = true, incoming = true) == true) return
         try {
             ctx.getSystemService(TelecomManager::class.java).acceptRingingCall()
         } catch (e: SecurityException) {
@@ -118,8 +116,7 @@ object Calls {
     }
 
     /**
-     * Prefers the audio system (works with the screen off). If that doesn't take, presses the button on the
-     * dialer's own call screen through the accessibility service.
+     * Uses the audio system (works with the screen off).
      */
     fun control(ctx: Context, action: String) {
         Thread {
@@ -131,36 +128,34 @@ object Calls {
                     val want = !am.isMicrophoneMute
                     am.isMicrophoneMute = want
                     weMuted = want
-                    if (am.isMicrophoneMute != want && pressInCall(ctx, listOf("mute"))) Unit
-                    else if (am.isMicrophoneMute != want) note = "This phone didn't allow muting from the Mac."
+                    if (am.isMicrophoneMute != want) note = "This phone didn't allow muting from the Mac."
                 }
                 "speaker" -> {
                     val want = !am.isSpeakerphoneOn
                     am.isSpeakerphoneOn = want
                     weSpeaker = want
-                    if (am.isSpeakerphoneOn != want && !pressInCall(ctx, listOf("speaker"))) note = "This phone didn't allow switching the speaker from the Mac."
+                    if (am.isSpeakerphoneOn != want) note = "This phone didn't allow switching the speaker from the Mac."
                 }
-                "hold" -> {
-                    if (pressInCall(ctx, listOf("hold"))) held = !held
-                    else note = "Couldn't reach the Hold button. Turn on PhoneBridge in Accessibility (Type from Mac), then try again."
-                }
+                "hold" -> note = "Hold isn't available from the Mac."
             }
             report(ctx, note)
         }.start()
     }
 
-    /** Presses a button on the dialer's call screen, bringing that screen up first if it isn't showing. */
-    private fun pressInCall(ctx: Context, words: List<String>): Boolean {
-        val svc = TypingService.instance ?: return false
-        if (svc.pressByWords(words)) return true
-        NotifListener.instance?.openCallScreen()
-        Thread.sleep(900)
-        return svc.pressByWords(words)
-    }
-
+    /**
+     * [waiting] = decline the second, ringing call and leave the one you're on alone. Otherwise: decline a ringing call, or end the
+     * call you're on. With a call waiting, TelecomManager.endCall() would reject the *ringing* one, so the fallback is only used
+     * when nothing is waiting.
+     */
     @Suppress("DEPRECATION")
-    fun end(ctx: Context) {
-        if (NotifListener.instance?.pressCallButton(answer = false) == true) return
+    fun end(ctx: Context, waiting: Boolean = false) {
+        val ringingCall = waiting || CallReporter.state() == "ringing"
+        if (NotifListener.instance?.pressCallButton(answer = false, incoming = ringingCall) == true) return
+        if (CallReporter.hasWaiting() && !waiting) {
+            Log.w(TAG, "can't tell which call to end without its button; not guessing")
+            return
+        }
+        if (waiting) return
         try {
             ctx.getSystemService(TelecomManager::class.java).endCall()
         } catch (e: SecurityException) {
@@ -170,8 +165,36 @@ object Calls {
 }
 
 object Clip {
+    @Volatile private var lastFromMac: String? = null
+    private var lastAutoAt = 0L
+    private var watching = false
+
     fun setFromMac(ctx: Context, text: String) = mainHandler.post {
+        lastFromMac = text
         ctx.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("From Mac", text))
+    }
+
+    /** Auto-sync needs "display over other apps": it's what lets us open the invisible activity that Android requires to read the clipboard. */
+    /** Off: it needed "display over other apps", a permission Play Protect treats as a warning sign. Use the Clipboard tile to send. */
+    fun autoPossible(ctx: Context) = false
+
+    /** Anything copied on the phone goes to the Mac by itself (skipping what the Mac just sent, and anything marked sensitive). */
+    fun watch(ctx: Context) {
+        if (watching) return
+        watching = true
+        val cm = ctx.getSystemService(ClipboardManager::class.java)
+        cm.addPrimaryClipChangedListener {
+            if (!Link.isConnected || !Prefs.get(ctx).getBoolean("autoClip", true) || !autoPossible(ctx)) return@addPrimaryClipChangedListener
+            val d = cm.primaryClipDescription ?: return@addPrimaryClipChangedListener
+            if (d.extras?.getBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE) == true) return@addPrimaryClipChangedListener
+            if (d.label == "From Mac" || d.label == "Image from Mac") return@addPrimaryClipChangedListener
+            val now = System.currentTimeMillis()
+            if (now - lastAutoAt < 700) return@addPrimaryClipChangedListener
+            lastAutoAt = now
+            runCatching {
+                ctx.startActivity(Intent(ctx, ClipActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION).putExtra("auto", true))
+            }
+        }
     }
 
     /** Only works while one of our activities has focus (Android 10+ rule). */
@@ -213,6 +236,7 @@ object Ringer {
         )
         val n = Notification.Builder(ctx, Channels.PAIR)
             .setSmallIcon(R.drawable.ic_stat_bridge)
+            .setColor(ThemeStore.get(ctx).accent)
             .setContentTitle("Ringing from your Mac")
             .setContentText("Tap to stop")
             .setContentIntent(stopIntent)

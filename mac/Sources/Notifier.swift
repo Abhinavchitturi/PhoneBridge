@@ -54,6 +54,10 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             }
         }
         center.add(UNNotificationRequest(identifier: "n:" + id, content: c, trigger: nil))
+        // macOS keeps banners up (or parked in Notification Center) until dismissed; clear it after a few seconds.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [center] in
+            center.removeDeliveredNotifications(withIdentifiers: ["n:" + id])
+        }
     }
 
     /// Category for this mix of Reply + the app's own buttons, registered on first use.
@@ -76,13 +80,17 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         center.removeDeliveredNotifications(withIdentifiers: ["n:" + id])
     }
 
-    func info(_ title: String, _ body: String, revealing file: URL? = nil) {
+    func info(_ title: String, _ body: String, revealing file: URL? = nil, clearAfter: TimeInterval? = nil) {
         let c = UNMutableNotificationContent()
         c.title = title
         c.body = body
         c.categoryIdentifier = "file"
         if let file { c.userInfo = ["reveal": file.path] }
-        center.add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
+        let id = UUID().uuidString
+        center.add(UNNotificationRequest(identifier: id, content: c, trigger: nil))
+        if let clearAfter {
+            DispatchQueue.main.asyncAfter(deadline: .now() + clearAfter) { [center] in center.removeDeliveredNotifications(withIdentifiers: [id]) }
+        }
     }
 
     func callEnded(title: String, body: String, number: String) {

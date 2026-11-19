@@ -21,14 +21,12 @@ object Channels {
     const val STATUS = "status"
     const val PAIR = "pair"
     const val FILES = "files"
-    const val GUARD = "guard"
 
     fun create(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(STATUS, "Connection status", NotificationManager.IMPORTANCE_MIN))
         nm.createNotificationChannel(NotificationChannel(PAIR, "Pairing requests", NotificationManager.IMPORTANCE_HIGH))
         nm.createNotificationChannel(NotificationChannel(FILES, "Files from Mac", NotificationManager.IMPORTANCE_DEFAULT))
-        nm.createNotificationChannel(NotificationChannel(GUARD, "Mac guard alerts", NotificationManager.IMPORTANCE_HIGH))
     }
 }
 
@@ -58,7 +56,7 @@ class LinkService : Service() {
         instance = this
         step("presence") { Presence.start(this) }
         step("screenshots") { ScreenshotWatch.start(this) }
-        step("guard") { Guard.startRelay(this) }
+        step("clipboard") { Clip.watch(this) }
     }
 
     private fun step(name: String, block: () -> Unit) {
@@ -131,12 +129,18 @@ class LinkService : Service() {
     private fun buildNotification(): Notification =
         Notification.Builder(this, Channels.STATUS)
             .setSmallIcon(R.drawable.ic_stat_bridge)
+            .setColor(ThemeStore.get(this).accent)
+            .setLargeIcon(ThemeStore.badge(this))
+            .setShowWhen(false)
             .setContentTitle(Link.status)
             .setOngoing(true)
             .setContentIntent(
                 PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
             )
             .build()
+
+    /** Re-posts the status notification so it picks up a newly chosen theme colour. */
+    fun refreshNotification() = updateNotification()
 
     private fun updateNotification() {
         getSystemService(NotificationManager::class.java).notify(1, buildNotification())

@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Receives text typed on the Mac; has no keys of its own. -->
+<input-method xmlns:android="http://schemas.android.com/apk/res/android" />

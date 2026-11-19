@@ -32,6 +32,7 @@ struct PhoneBridgeApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.appearance = NSAppearance(named: .darkAqua) // every theme is dark
         let event = NSAppleEventManager.shared().currentAppleEvent
         let launchedAtLogin = event?.eventID == kAEOpenApplication &&
             event?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
@@ -62,19 +63,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-    /// With the guard on, quitting asks for the code. Shutdown, restart and logout (which carry a quit reason) always go through.
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        MainActor.assumeIsolated {
-            let guardian = Bridge.shared.guardian
-            guard guardian.requiresCodeToQuit else { return .terminateNow }
-            if NSAppleEventManager.shared().currentAppleEvent?.attributeDescriptor(forKeyword: AEKeyword(kAEQuitReason)) != nil { return .terminateNow }
-            return guardian.confirmQuit() ? .terminateNow : .terminateCancel
-        }
-    }
-
     private func updateActivationPolicy(closing: NSWindow?) {
         DispatchQueue.main.async {
-            if MainActor.assumeIsolated({ Bridge.shared.guardian.lockShowing }) { return } // the lock screen needs a regular app
             let hasWindow = NSApp.windows.contains {
                 $0 !== closing && $0.isVisible && $0.level == .normal && !($0 is NSPanel) && $0.canBecomeMain
             }
@@ -107,6 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 final class UIState: ObservableObject {
     static let shared = UIState()
     @Published var showSetup = false
+    @Published var showSettings = false
     @Published var hostPort = ""
     @Published var code = ""
     @Published var search = ""
@@ -161,6 +152,8 @@ final class Bridge: ObservableObject {
     @Published var charging = false
     @Published var phoneRinging = false
     @Published var phoneName = "Phone"
+    /// Name of a phone that has been found and is waiting for the pairing code to be confirmed.
+    @Published var foundPhone: String?
     @Published var apps: [PhoneApp] = []
     @Published var nowPlaying: NowPlaying?
     @Published var phoneDnd = false
@@ -176,6 +169,7 @@ final class Bridge: ObservableObject {
     let mac = MacControl()
     let macMedia = MacMedia()
     let mediaDeck = MediaDeck()
+    let commandServer = CommandServer()
     let phone = PhoneStore()
     let input = InputControl()
     let presence = Presence()
@@ -190,7 +184,6 @@ final class Bridge: ObservableObject {
     let focusLink = FocusLink()
     let note = SharedNote()
     let chatPopup = ChatPopup()
-    let guardian = IntruderGuard()
     private var typeDebounce: DispatchWorkItem?
 
     func start() {
@@ -223,6 +216,7 @@ final class Bridge: ObservableObject {
         macMedia.send = { [link] in link.send($0) }
         mediaDeck.send = { [link] in link.send($0) }
         mediaDeck.currentApp = { [macMedia] in macMedia.currentApp }
+        mediaDeck.currentTitle = { [macMedia] in macMedia.currentTitle }
         mac.deck = { [mediaDeck] cmd, action, value in
             switch cmd {
             case "deck_on": mediaDeck.on()
@@ -236,12 +230,11 @@ final class Bridge: ObservableObject {
         phone.onDial = { [callPanel] name, number in callPanel.showOutgoing(name: name, number: number) }
         input.notify = { [notifier] title, body in notifier.info(title, body) }
         presence.lock = { [mac] in mac.lock() }
+        ThemeStore.shared.onLocalChange = { [link] t in link.send(["t": "theme", "id": t.id]) }
         callPanel.onAnswer = { [link] in link.send(["t": "call_answer"]) }
         callPanel.onDecline = { [link] in link.send(["t": "call_end"]) }
-        guardian.sendLink = { [link] in link.send($0) }
-        guardian.isConnected = { [weak self] in self?.connected ?? false }
-        guardian.phoneNear = { [weak self] in (self?.connected ?? false) || (self?.presence.seenRecently() ?? false) }
-        guardian.notify = { [notifier] title, body in notifier.info(title, body) }
+        callPanel.onAnswerWaiting = { [link] in link.send(["t": "call_answer", "waiting": true]) }
+        callPanel.onDeclineWaiting = { [link] in link.send(["t": "call_end", "waiting": true]) }
         chatPopup.onReply = { [link] id, text in link.send(["t": "reply", "id": id, "text": text]) }
         chatPopup.isBusy = { [callPanel] in callPanel.active || callPanel.name != nil || callPanel.outgoing }
         callPanel.onControl = { [link] action in link.send(["t": "call_ctl", "action": action]) }
@@ -278,7 +271,40 @@ final class Bridge: ObservableObject {
         statusBar.start(bridge: self)
         link.start()
         streamer.start()
-        guardian.start()
+        commandServer.handle = { [weak self] req, reply in
+            Task { @MainActor in
+                if let self { reply(self.runCommand(req)) } else { reply(["ok": false, "error": "PhoneBridge is quitting"]) }
+            }
+        }
+        commandServer.start()
+    }
+
+    /// Commands from the `pb` tool / Shortcuts: send, ring, clip, status.
+    private func runCommand(_ req: [String: Any]) -> [String: Any] {
+        let cmd = req["cmd"] as? String
+        if cmd == "status" { return ["ok": true, "connected": connected, "ringing": phoneRinging] }
+        guard connected else { return ["ok": false, "error": "Phone not connected"] }
+        switch cmd {
+        case "send":
+            let fm = FileManager.default
+            let urls = (req["paths"] as? [String] ?? []).map { URL(fileURLWithPath: $0) }
+            var isDir: ObjCBool = false
+            guard !urls.isEmpty, urls.allSatisfy({ fm.fileExists(atPath: $0.path, isDirectory: &isDir) && !isDir.boolValue }) else {
+                return ["ok": false, "error": "Only existing files can be sent"]
+            }
+            sendFiles(urls)
+            return ["ok": true, "count": urls.count]
+        case "ring":
+            let want = req["on"] as? Bool ?? !phoneRinging
+            if want != phoneRinging { toggleRing() }
+            return ["ok": true, "ringing": phoneRinging]
+        case "clip":
+            guard let text = req["text"] as? String, !text.isEmpty else { return ["ok": false, "error": "Nothing to copy"] }
+            link.send(["t": "clip", "text": text])
+            return ["ok": true]
+        default:
+            return ["ok": false, "error": "Unknown command"]
+        }
     }
 
     func send(_ msg: [String: Any]) { link.send(msg) }
@@ -383,11 +409,16 @@ final class Bridge: ObservableObject {
             nowPlaying = nil
             callPanel.hide()
             status = "Looking for your phone…"
+            foundPhone = nil
         case .pairing(let name):
             connected = false
+            foundPhone = name
             status = "Pairing with \(name)…"
         case .connected(let name):
             connected = true
+            foundPhone = nil
+            FxCenter.shared.fire(.connect, space: "main")
+            FxCenter.shared.haptic(.levelChange)
             phoneName = name
             status = "Connected to \(name)"
             mac.sendState(force: true)
@@ -443,12 +474,13 @@ final class Bridge: ObservableObject {
         case "note": note.receive(m)
         case "cast_state": cast.handleState(m)
         case "cast_diag": cast.handleDiag(m)
+        case "theme":
+            NSLog("PhoneBridge: phone theme -> %@", m["id"] as? String ?? "?")
+            if let id = m["id"] as? String, let t = AppTheme.all.first(where: { $0.id == id }) { ThemeStore.shared.applyRemote(t) }
         case "debug_state": handleDebugState(m)
         case "call":
             callPanel.update(m)
             if m["state"] as? String == "idle", !phone.calls.isEmpty { phone.refresh(.calls) }
-        case "guard_cmd":
-            guardian.handleCommand(m["c"] as? String ?? "", eventId: m["e"] as? String)
         case "call_ctl_state":
             callPanel.setControls(m)
             if let note = m["note"] as? String, !note.isEmpty { notifier.info("Call controls", note) }
@@ -456,8 +488,8 @@ final class Bridge: ObservableObject {
         case "input": input.handle(m)
         case "otp":
             if let code = m["code"] as? String {
-                clipboard.setFromPhone(code)
-                notifier.info("Code \(code) copied", "From \(m["from"] as? String ?? "SMS") — just paste it")
+                clipboard.setFromPhone(code, secret: true)
+                notifier.info("Code \(code) copied", "From \(m["from"] as? String ?? "SMS") — just paste it", clearAfter: 10)
             }
         case "alert":
             notifier.info(m["title"] as? String ?? "PhoneBridge", m["body"] as? String ?? "")

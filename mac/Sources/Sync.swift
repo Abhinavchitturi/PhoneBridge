@@ -54,13 +54,28 @@ final class ClipboardSync {
         lastChange = pb.changeCount
     }
 
-    func setFromPhone(_ text: String) {
+    /// [secret]: a one-time code. Kept out of the clipboard history, marked so clipboard managers and
+    /// Universal Clipboard skip it, and wiped after a minute if nothing else has been copied since.
+    func setFromPhone(_ text: String, secret: Bool = false) {
         lastText = text
-        onText(text, true)
+        if !secret { onText(text, true) }
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)
+        if secret {
+            pb.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+            pb.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.TransientType"))
+            pb.setData(Data(), forType: NSPasteboard.PasteboardType("com.apple.is-remote-clipboard"))
+        }
         lastChange = pb.changeCount // don't echo it back
+        if secret {
+            let mine = lastChange
+            DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
+                guard pb.changeCount == mine else { return }
+                pb.clearContents()
+                self?.lastChange = pb.changeCount
+            }
+        }
     }
 }
 

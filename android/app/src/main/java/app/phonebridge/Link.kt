@@ -131,6 +131,7 @@ object Link {
         setStatus("Connected to ${c.macName}")
         send("info", "name" to deviceName, "addrs" to org.json.JSONArray(localAddresses()))
         Battery.sendCurrent(app)
+        ThemeStore.push(app)
         AutoReply.report(app)
         MediaWatch.resend()
         NotifListener.instance?.reportDnd()

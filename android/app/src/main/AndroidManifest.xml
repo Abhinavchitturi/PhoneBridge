@@ -60,7 +60,7 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:label="PhoneBridge"
-        android:theme="@android:style/Theme.DeviceDefault.DayNight">
+        android:theme="@android:style/Theme.DeviceDefault">
 
         <activity
             android:name=".MainActivity"
@@ -73,18 +73,6 @@
 
         <activity
             android:name=".NotifAppsActivity"
-            android:exported="false" />
-
-        <activity
-            android:name=".GuardCodeActivity"
-            android:exported="false" />
-
-        <activity
-            android:name=".GuardPhotoActivity"
-            android:exported="false" />
-
-        <receiver
-            android:name=".GuardReceiver"
             android:exported="false" />
 
         <activity
@@ -149,16 +137,16 @@
 
         <!-- Mac keyboard → phone text boxes -->
         <service
-            android:name=".TypingService"
+            android:name=".TypingKeyboard"
             android:exported="true"
-            android:label="PhoneBridge — type from Mac"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            android:label="PhoneBridge keyboard"
+            android:permission="android.permission.BIND_INPUT_METHOD">
             <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
+                <action android:name="android.view.InputMethod" />
             </intent-filter>
             <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/typing_service" />
+                android:name="android.view.im"
+                android:resource="@xml/typing_keyboard" />
         </service>
 
         <!-- Images copied on the Mac, served to the phone clipboard -->

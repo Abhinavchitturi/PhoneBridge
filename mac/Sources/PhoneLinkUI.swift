@@ -64,7 +64,7 @@ struct PhotosView: View {
                     } else {
                         ZStack {
                             LinearGradient(colors: [Theme.accent, Theme.accent.opacity(0.55)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                            Image(systemName: "photo.stack.fill").font(.system(size: 16)).foregroundStyle(.white)
+                            Image(systemName: "photo.stack.fill").font(.system(size: 16)).foregroundStyle(Theme.onAccent)
                         }
                     }
                 }
@@ -124,7 +124,7 @@ struct PhotosView: View {
             .fixedSize()
             .font(.system(size: 12.5, weight: .semibold))
             .padding(.horizontal, 12).padding(.vertical, 6)
-            .foregroundStyle(prominent ? Color.white : destructive ? Color.red : Color.primary)
+            .foregroundStyle(prominent ? Theme.onAccent : destructive ? Color.red : Color.primary)
             .background(Capsule().fill(prominent ? Theme.accent : destructive ? Color.red.opacity(0.14) : Color.primary.opacity(0.08)))
         }
         .buttonStyle(.plain)
@@ -136,7 +136,7 @@ struct PhotosView: View {
                 Button { store.showKind(k) } label: {
                     Text(k.title).font(.system(size: 12.5, weight: .semibold)).lineLimit(1).fixedSize()
                         .padding(.horizontal, 14).padding(.vertical, 5)
-                        .foregroundStyle(store.kind == k ? Color.white : .primary)
+                        .foregroundStyle(store.kind == k ? Theme.onAccent : .primary)
                         .background(Capsule().fill(store.kind == k ? Theme.accent : .clear))
                 }
                 .buttonStyle(.plain)
