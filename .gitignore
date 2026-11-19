@@ -24,3 +24,7 @@ CallTest/
 *.pem
 .env
 .kotlin/
+
+# Release downloads (published on GitHub Releases, not committed)
+release/
+*.dmg

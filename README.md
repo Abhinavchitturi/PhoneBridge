@@ -1,13 +1,54 @@
-# PhoneBridge
+<p align="center">
+  <img src="docs/icon.png" width="112" alt="PhoneBridge logo">
+</p>
 
-Phone Link–style connection between a Mac and an Android phone: your phone's notifications, calls, messages, photos, clipboard and files on the Mac, with no PhoneBridge servers and no account. Nothing it does goes through the internet.
+<h1 align="center">PhoneBridge</h1>
+
+<p align="center">
+  Your Android phone on your Mac: notifications, calls, messages, photos, clipboard and files.<br>
+  No account, no cloud, no PhoneBridge servers. Everything stays between your two devices.
+</p>
+
+<p align="center">
+  <a href="https://github.com/Abhinavchitturi/PhoneBridge/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Abhinavchitturi/PhoneBridge?color=2ea44f"></a>
+  <img alt="Platforms" src="https://img.shields.io/badge/macOS-15%2B-black">
+  <img alt="Android" src="https://img.shields.io/badge/Android-13%2B-3ddc84">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue"></a>
+</p>
+
+## Download
+
+| | Get it | Needs |
+|---|---|---|
+| **Mac** | [**PhoneBridge.dmg**](https://github.com/Abhinavchitturi/PhoneBridge/releases/latest/download/PhoneBridge.dmg) | macOS 15 or later |
+| **Android phone** | [**PhoneBridge.apk**](https://github.com/Abhinavchitturi/PhoneBridge/releases/latest/download/PhoneBridge.apk) | Android 13 or later |
+
+You need **both**: install the Mac app and the phone app, then connect them once. All versions and checksums are on the [Releases page](https://github.com/Abhinavchitturi/PhoneBridge/releases).
+
+## Install
+
+### On the Mac
+1. Open **PhoneBridge.dmg** and drag **PhoneBridge** onto **Applications**.
+2. Open it from Launchpad. The first time, macOS says the app is from an unidentified developer (it isn't sold through the App Store): **right-click the app → Open → Open**. If you don't get that button, run this once and open it again:
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/PhoneBridge.app
+   ```
+3. PhoneBridge lives in the **menu bar** (top right). Allow **Notifications** and **Local Network** when macOS asks. Other permissions are only asked for when you turn the feature on.
+
+### On the phone
+1. Download **PhoneBridge.apk** on the phone (or send it from the Mac) and open it. Android asks to allow installs from that app; allow it.
+2. Google Play Protect may warn about an app from outside the Play Store. Tap **More details → Install anyway** (the plain text, not the blue button). Samsung phones: turn **Auto Blocker** off only while installing.
+3. Open **PhoneBridge** and follow the setup card: allow **Calls**, **SMS**, **Notifications**, **Photos** and **notification access**, and let it **run in the background** (optional: switch on the **PhoneBridge keyboard** to type on the phone from the Mac). If a switch is greyed out, see [Allowing SMS, calls and notifications](#allowing-sms-calls-and-notifications-on-android-restricted-settings).
+
+### Connect them
+Open PhoneBridge on both, on the same Wi-Fi (a phone hotspot works too). Both show a 6-digit code: if they match, tap **Pair** on both. You only do this once.
 
 Developed and tested on a MacBook Air (macOS 27) with a Samsung Galaxy phone (One UI 8, Android 16). Open source under the MIT license.
 
 | Folder | What |
 |---|---|
-| `mac/` | Menu-bar app (Swift, builds without Xcode) → `mac/build/PhoneBridge.app` |
-| `android/` | Companion app (Kotlin) → `PhoneBridge.apk` (release build, signed with the same key every time so updates install over the old one) |
+| `mac/` | Menu-bar app (Swift, builds without Xcode) |
+| `android/` | Companion app (Kotlin), signed with the same key every release so updates install over the old one |
 
 ## Features
 - 🔔 Phone notifications on the Mac — reply inline (a corner pop-up with a ready text box for chat apps), dismissing on one side dismisses on the other
@@ -65,15 +106,15 @@ sequenceDiagram
   Note over Mac,Phone: Session keys = HKDF over the long-term and fresh secrets. Everything after this is AES-256-GCM encrypted.
 ```
 
-## Quick start
+## Build from source
+
+Only needed if you want to change the code; otherwise use the [downloads](#download) above.
 
 ### What you need
-- **Mac:** macOS 15 or later (the app's declared minimum; developed on 27) with the Xcode Command Line Tools (`xcode-select --install`). Full Xcode is not needed.
-- **Phone:** Android 13 or later.
-- **To build the phone app:** Android Studio (its bundled JDK and the Android SDK).
-- Both on the same Wi-Fi network (a phone hotspot also works).
+- **Mac:** macOS 15 or later with the Xcode Command Line Tools (`xcode-select --install`). Full Xcode is not needed.
+- **Phone app:** Android Studio (its bundled JDK and the Android SDK).
 
-### 1. Build and launch the Mac app
+### Mac app
 ```bash
 git clone https://github.com/Abhinavchitturi/PhoneBridge.git
 cd PhoneBridge/mac
@@ -81,35 +122,19 @@ cd PhoneBridge/mac
 ./build.sh
 open build/PhoneBridge.app
 ```
-- PhoneBridge lives in the **menu bar** (top right of the screen). It has no Dock icon until one of its windows is open, and closing the windows keeps it running.
-- On first launch, allow **Notifications** and **Local Network** when macOS asks. Later features ask for **Accessibility** (media keys, trackpad), **Bluetooth** (lock when you walk away) only when you turn them on.
-- Click the menu-bar icon → **Messages, Photos & Calls…** to open the main phone window. Drag `PhoneBridge.app` into `/Applications` to keep it; it can start at login.
 
-### 2. Build and install the phone app
+### Phone app
 ```bash
 cd android
 JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew assembleRelease
-# the APK is at app/build/outputs/apk/release/app-release.apk (a prebuilt copy sits in the project root as PhoneBridge.apk)
 adb install -r app/build/outputs/apk/release/app-release.apk   # or send the file to the phone and open it
 ```
-Samsung phones: **Settings → Security and privacy → Auto Blocker → Off** only while installing; you can turn it back on afterwards and the app keeps working.
 
-Google Play Protect may warn about an app installed outside the Play Store. Tap **Install anyway** (the plain text, not the blue OK button).
-
-### 3. Set up the phone app
-Open **PhoneBridge** on the phone. The setup card has a button for each permission:
-1. Allow **Calls**, **SMS**, **Notifications** and **Photos**.
-2. Allow **notification access**.
-3. Optional, for typing from the Mac: switch on **PhoneBridge keyboard** (the **Type from Mac** tile opens the right settings page), then pick it as the keyboard when you want to type.
-4. Let it **run in the background** (Samsung: also **Settings → Battery → Background usage limits → Never sleeping apps → add PhoneBridge**).
-
-If Android says *"App was denied access"* or a switch is greyed out, read the next section.
-
-### 4. Pair
-On first launch both apps show a radar screen while they look for each other on the same Wi-Fi.
-
-1. Make sure PhoneBridge is open on both devices (same network).
-2. Both show a 6-digit code. If they match, tap **Pair** on both. That's the only time you do this.
+### Make the download files
+```bash
+./release.sh    # builds both apps into release/: PhoneBridge-<version>.dmg and PhoneBridge-<version>.apk, with checksums
+```
+To publish them: `gh release create v<version> release/PhoneBridge-<version>.dmg release/PhoneBridge-<version>.apk release/PhoneBridge.dmg release/PhoneBridge.apk release/SHA256SUMS.txt --generate-notes`. The plain-named copies are what keep the *latest* download links above working.
 
 ## Command line and Shortcuts
 
