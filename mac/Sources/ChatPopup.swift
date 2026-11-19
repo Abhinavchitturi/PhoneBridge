@@ -181,7 +181,7 @@ struct PopupView: View {
                     TextField("Reply…", text: $model.draft).textFieldStyle(.plain).font(.system(size: 13.5))
                         .onSubmit { model.send(model.draft) }
                     Button { model.send(model.draft) } label: {
-                        Image(systemName: "arrow.up").font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
+                        Image(systemName: "arrow.up").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.onAccent)
                             .frame(width: 28, height: 28)
                             .background(Circle().fill(model.draft.trimmingCharacters(in: .whitespaces).isEmpty ? AnyShapeStyle(Color.primary.opacity(0.2)) : AnyShapeStyle(Theme.gradient)))
                     }
@@ -193,7 +193,6 @@ struct PopupView: View {
         }
         .padding(14)
         .frame(width: 380)
-        .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(.regularMaterial))
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(.white.opacity(0.08)))
+        .themedSurface(22)
     }
 }

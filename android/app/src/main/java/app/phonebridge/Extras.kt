@@ -1,7 +1,6 @@
 package app.phonebridge
 
 import android.Manifest
-import android.accessibilityservice.AccessibilityService
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ComponentName
@@ -29,8 +28,6 @@ import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.service.notification.NotificationListenerService
 import android.util.Log
-import android.view.accessibility.AccessibilityEvent
-import android.view.accessibility.AccessibilityNodeInfo
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -244,156 +241,80 @@ object Dnd {
     }
 }
 
-/** Mac keyboard → the focused text box on the phone (needs this accessibility service switched on). */
-class TypingService : AccessibilityService() {
+/**
+ * Mac keyboard → the focused text box on the phone. This is a tiny keyboard (input method), not an accessibility service,
+ * so payment apps don't treat it as a threat. It only receives text while it's the keyboard in use.
+ */
+class TypingKeyboard : android.inputmethodservice.InputMethodService() {
     companion object {
-        @Volatile var instance: TypingService? = null
+        @Volatile var instance: TypingKeyboard? = null
+
+        fun isEnabled(ctx: Context) = ctx.getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+            .enabledInputMethodList.any { it.packageName == ctx.packageName }
+
+        fun isActive(ctx: Context) = android.provider.Settings.Secure
+            .getString(ctx.contentResolver, android.provider.Settings.Secure.DEFAULT_INPUT_METHOD)
+            ?.startsWith(ctx.packageName + "/") == true
     }
 
-    override fun onServiceConnected() {
+    private val ui = Handler(Looper.getMainLooper())
+
+    override fun onCreate() {
+        super.onCreate()
         instance = this
     }
 
-    override fun onUnbind(intent: android.content.Intent?): Boolean {
+    override fun onDestroy() {
         instance = null
-        return super.onUnbind(intent)
+        super.onDestroy()
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
-    override fun onInterrupt() {}
-
-    private fun focused() = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-
-    fun setText(text: String) = main.post {
-        val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) }
-        focused()?.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
-    }
-
-    fun enter() = main.post {
-        focused()?.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
-    }
-
-    // MARK: Control while casting — coordinates arrive normalised (0…1) to the phone's screen.
-
-    private fun point(nx: Double, ny: Double): Pair<Float, Float> {
-        val b = getSystemService(android.view.WindowManager::class.java).currentWindowMetrics.bounds
-        return (nx.coerceIn(0.0, 1.0) * (b.width() - 1)).toFloat() to (ny.coerceIn(0.0, 1.0) * (b.height() - 1)).toFloat()
-    }
-
-    fun gesture(x1: Double, y1: Double, x2: Double, y2: Double, durationMs: Long) = main.post {
-        val (ax, ay) = point(x1, y1)
-        val (bx, by) = point(x2, y2)
-        val path = android.graphics.Path().apply { moveTo(ax, ay); lineTo(bx, by) }
-        val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, durationMs.coerceIn(1, 3000))
-        dispatchGesture(android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build(), null, null)
-    }
-
-    private var stroke: android.accessibilityservice.GestureDescription.StrokeDescription? = null
-    private var lastX = 0f
-    private var lastY = 0f
-    private var lastAt = 0L
-
-    /** Live touch from the Mac: "down" puts a finger on the screen, "move" drags it, "up" lifts it. */
-    fun touch(phase: String, nx: Double, ny: Double) = main.post {
-        val (x, y) = point(nx, ny)
-        val now = android.os.SystemClock.uptimeMillis()
-        val path = android.graphics.Path().apply {
-            moveTo(if (phase == "down") x else lastX, if (phase == "down") y else lastY)
-            lineTo(x, y)
+    override fun onCreateInputView(): android.view.View {
+        val dp = resources.displayMetrics.density
+        return android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER
+            setBackgroundColor(0xFF1C1C1E.toInt())
+            setPadding((16 * dp).toInt(), (20 * dp).toInt(), (16 * dp).toInt(), (20 * dp).toInt())
+            addView(android.widget.TextView(context).apply {
+                text = "Typing from your Mac"
+                setTextColor(0xFFFFFFFF.toInt())
+                textSize = 17f
+                gravity = android.view.Gravity.CENTER
+            })
+            addView(android.widget.Button(context).apply {
+                text = "Switch keyboard"
+                setOnClickListener {
+                    getSystemService(android.view.inputmethod.InputMethodManager::class.java).showInputMethodPicker()
+                }
+            })
         }
-        val duration = if (phase == "down") 1L else (now - lastAt).coerceIn(8, 100)
-        val keepDown = phase != "up"
-        val prev = stroke
-        val next = if (phase == "down" || prev == null) {
-            android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, duration, keepDown)
+    }
+
+    /** Replaces the whole text of the focused box. */
+    fun setText(text: String) = ui.post {
+        val ic = currentInputConnection ?: return@post
+        ic.beginBatchEdit()
+        ic.performContextMenuAction(android.R.id.selectAll)
+        ic.commitText(text, 1)
+        ic.endBatchEdit()
+    }
+
+    fun enter() = ui.post {
+        val ic = currentInputConnection ?: return@post
+        val action = (currentInputEditorInfo?.imeOptions ?: 0) and android.view.inputmethod.EditorInfo.IME_MASK_ACTION
+        if (action != android.view.inputmethod.EditorInfo.IME_ACTION_NONE && action != android.view.inputmethod.EditorInfo.IME_ACTION_UNSPECIFIED) {
+            ic.performEditorAction(action)
         } else {
-            try { prev.continueStroke(path, 0, duration, keepDown) } catch (e: IllegalStateException) {
-                android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, duration, keepDown)
-            }
+            ic.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_ENTER))
+            ic.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_ENTER))
         }
-        stroke = if (keepDown) next else null
-        lastX = x
-        lastY = y
-        lastAt = now
-        dispatchGesture(android.accessibilityservice.GestureDescription.Builder().addStroke(next).build(), null, null)
-    }
-
-    fun nav(action: String) = main.post {
-        performGlobalAction(when (action) {
-            "home" -> GLOBAL_ACTION_HOME
-            "recents" -> GLOBAL_ACTION_RECENTS
-            else -> GLOBAL_ACTION_BACK
-        })
     }
 
     /** Typing while casting: appends to / deletes from whatever text box is focused. */
-    fun type(text: String?, backspace: Boolean) = main.post {
-        val node = focused() ?: return@post
-        val current = if (node.isShowingHintText) "" else node.text?.toString().orEmpty()
-        val next = if (backspace) current.dropLast(1) else current + text.orEmpty()
-        val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, next) }
-        node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
-    }
-
-    /** Presses the first button on an in-call screen whose label contains one of [words] (e.g. "hold"). */
-    fun pressByWords(words: List<String>): Boolean {
-        for (root in allRoots()) {
-            val pkg = root.packageName?.toString().orEmpty()
-            if (!(pkg.contains("incall") || pkg.contains("dialer") || pkg.contains("telecom") || pkg.contains("phone"))) continue
-            val queue = ArrayDeque<AccessibilityNodeInfo>().apply { add(root) }
-            while (queue.isNotEmpty()) {
-                val n = queue.removeFirst()
-                val label = ((n.text?.toString() ?: "") + " " + (n.contentDescription?.toString() ?: "")).lowercase()
-                if (words.any { label.contains(it) } && tap(n)) return true
-                for (i in 0 until n.childCount) n.getChild(i)?.let { queue.add(it) }
-            }
-        }
-        return false
-    }
-
-    // MARK: Unlock — wake, swipe up, then (optionally) tap the PIN. The PIN is never saved anywhere.
-
-    private fun allRoots(): List<AccessibilityNodeInfo> =
-        (runCatching { windows.mapNotNull { it.root } }.getOrDefault(emptyList()) + listOfNotNull(rootInActiveWindow))
-
-    private fun findKey(label: String): AccessibilityNodeInfo? {
-        for (root in allRoots()) {
-            val hit = root.findAccessibilityNodeInfosByText(label).firstOrNull {
-                it.text?.toString() == label || it.contentDescription?.toString() == label
-            }
-            if (hit != null) return hit
-        }
-        return null
-    }
-
-    private fun tap(node: AccessibilityNodeInfo): Boolean {
-        var n: AccessibilityNodeInfo? = node
-        while (n != null && !n.isClickable) n = n.parent
-        return n?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
-    }
-
-    /** Blocking: call from a background thread. Returns a short note for the Mac, or null if all went to plan. */
-    fun unlockBlocking(pin: String?): String? {
-        @Suppress("DEPRECATION")
-        val wl = getSystemService(android.os.PowerManager::class.java)
-            .newWakeLock(android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP, "phonebridge:wake")
-        wl.acquire(15_000)
-        Thread.sleep(800)
-        gesture(0.5, 0.88, 0.5, 0.25, 250)
-        if (pin.isNullOrEmpty()) return null
-        Thread.sleep(1000)
-        for (digit in pin) {
-            val key = findKey(digit.toString()) ?: return "Couldn't find the PIN pad. Is the phone showing its lock screen?"
-            tap(key)
-            Thread.sleep(180)
-        }
-        // Many lock screens need a confirm key after the digits; harmless if there isn't one.
-        listOf("Enter", "OK", "Done").firstNotNullOfOrNull { findKey(it) }?.let { tap(it) }
-        return null
-    }
-
-    fun launch(pkg: String) = main.post {
-        packageManager.getLaunchIntentForPackage(pkg)?.let { startActivity(it.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+    fun type(text: String?, backspace: Boolean) = ui.post {
+        val ic = currentInputConnection ?: return@post
+        if (backspace) ic.deleteSurroundingText(1, 0) else ic.commitText(text.orEmpty(), 1)
     }
 }
 

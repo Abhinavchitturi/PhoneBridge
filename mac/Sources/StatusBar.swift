@@ -17,13 +17,25 @@ final class StatusBar {
             drop.onDrop = { urls in bridge.sendFiles(urls) }
             button.addSubview(drop)
         }
-        watch = bridge.$connected.sink { [weak item] up in
-            let image = NSImage(systemSymbolName: up ? "iphone.radiowaves.left.and.right" : "iphone.slash",
-                                accessibilityDescription: "PhoneBridge")
-            image?.isTemplate = true
-            item?.button?.image = image
+        // Follows the chosen theme: its logo, dimmed while the phone isn't connected.
+        watch = Publishers.CombineLatest(bridge.$connected, ThemeStore.shared.$current).sink { [weak item, weak self] up, theme in
+            item?.button?.image = self?.icon(for: theme, connected: up)
         }
         self.item = item
+    }
+
+    /// Midnight is a plain template image (black or white to match the menu bar); the character themes keep their colours.
+    private func icon(for theme: AppTheme, connected: Bool) -> NSImage? {
+        let template = theme.motif == .arch
+        let glyph = ThemeGlyph(theme: theme, color: template ? Color.black : nil)
+            .frame(width: 20, height: 20)
+            .opacity(connected ? 1 : 0.4)
+        let renderer = ImageRenderer(content: glyph)
+        renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
+        let image = renderer.nsImage
+        image?.isTemplate = template
+        image?.accessibilityDescription = "PhoneBridge"
+        return image
     }
 }
 

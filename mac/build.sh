@@ -9,6 +9,7 @@ cp Info.plist "$APP/Contents/Info.plist"
 # A fresh build number every time, so macOS (e.g. Notification Center's icon cache) notices updates.
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(date +%Y%m%d%H%M%S)" "$APP/Contents/Info.plist"
 mkdir -p "$APP/Contents/Resources" && cp AppIcon.icns "$APP/Contents/Resources/"
+cp Assets/themeart_* "$APP/Contents/Resources/"   # character artwork for the themes
 # Now-playing watcher, run inside /usr/bin/perl (see Helpers/NowPlaying.m).
 clang -O2 -dynamiclib -fobjc-arc -framework Foundation -framework ImageIO -framework CoreGraphics \
     Helpers/NowPlaying.m -o "$APP/Contents/Resources/NowPlaying.dylib"

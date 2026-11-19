@@ -10,133 +10,121 @@ struct MainView: View {
     @ObservedObject private var mic = Bridge.shared.mic
     @ObservedObject private var screenshots = Bridge.shared.screenshots
     @ObservedObject private var ui = UIState.shared
+    @ObservedObject private var themes = ThemeStore.shared
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                header
-                if !bridge.connected {
-                    Text("Open PhoneBridge on your phone. The phone and Mac must be on the same Wi-Fi (or the Mac on the phone's hotspot). When both show a 6-digit code, check they match and tap Pair on both.")
-                        .font(.callout).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+        ZStack {
+            if bridge.connected {
+                if ui.showSettings { settingsPane } else { mainContent }
+            } else {
+                Backdrop()
+                DiscoveryView(bridge: bridge).frame(width: 500, height: 720)
+            }
+        }
+        .coordinateSpace(name: "fx-main")
+        .environment(\.fxSpace, "main")
+        .overlay { FxOverlay(space: "main") }
+        .onAppear { if bridge.connected { FxCenter.shared.fireOpenOnce(space: "main") } }   // never while still searching
+        .frame(width: 500, height: 720)
+        .onAppear { ui.openWindow = openWindow }
+    }
+
+    private var mainContent: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 16) {
+                brandHeader
+                ThemeHero(theme: themes.current)
+                    .overlay(alignment: .bottom) {
+                        LinearGradient(colors: [.clear, Color.black.opacity(0.6)], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 96).clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    }
+                    .overlay(alignment: .bottomLeading) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(bridge.phoneName).font(.system(size: 22, weight: .regular, design: .serif))
+                            Text(heroLine).font(.system(size: 12)).foregroundStyle(.white.opacity(0.7))
+                        }
+                        .padding(18)
+                    }
                 if let np = bridge.nowPlaying { NowPlayingCard(np: np, bridge: bridge) }
-                actions
-                section("Lock when my phone walks away", "lock") { lockSection }
-                section("Phone apps & screen", "apps.iphone") { appsSection }
-                section("Phone as microphone", "mic") { micSection }
-                section("Screenshots", "camera.viewfinder") {
-                    Toggle("Send new Mac screenshots to the phone", isOn: $screenshots.enabled)
-                    caption("Phone screenshots always arrive here automatically (copied, and saved in Downloads).")
-                }
-                section("Away from home", "globe") {
-                    caption("Install Tailscale (free) on the Mac and the phone and sign in with the same account. PhoneBridge then reconnects over it whenever you're not on the same Wi-Fi — college, office, anywhere.")
-                    Button("Get Tailscale") { NSWorkspace.shared.open(URL(string: "https://tailscale.com/download")!) }
-                }
-                Divider()
-                HStack {
-                    Toggle("Open at login", isOn: $ui.openAtLogin)
-                    Spacer()
-                    Button("Forget phone") { bridge.forget() }
+                actionGrid
+                Button { withAnimation(.easeOut(duration: 0.2)) { ui.showSettings = true }; bridge.phone.refresh(.settings) } label: {
+                    Label("All settings", systemImage: "slider.horizontal.3").frame(maxWidth: .infinity)
                 }
                 caption("Closing this window keeps PhoneBridge running in the menu bar. Drop files on the menu bar icon to send them to your phone.")
             }
             .padding(20)
+            .buttonStyle(PillButtonStyle())
         }
         .frame(width: 500, height: 720)
+        .background(themes.current.bg)
+        .preferredColorScheme(.dark)
+        .tint(Theme.accent)
+        .id(themes.current.id)
+        .overlay { ThemeBurstView() }
         .onAppear { ui.openWindow = openWindow }
-        .sheet(isPresented: $ui.showSetup) { StreamingSetupView(streamer: streamer, done: { ui.showSetup = false }) }
     }
 
-    private var header: some View {
-        HStack(spacing: 14) {
-            Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 64, height: 64)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("PhoneBridge").font(.title2.bold())
-                HStack(spacing: 6) {
-                    Circle().fill(bridge.connected ? Color.green : Color.orange).frame(width: 9, height: 9)
-                    Text(bridge.status).foregroundStyle(.secondary)
+    /// Settings shown right here in the main window (no second window to open or lose).
+    private var settingsPane: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button { withAnimation(.easeOut(duration: 0.2)) { ui.showSettings = false } } label: {
+                    Label("Back", systemImage: "chevron.left")
                 }
-                if bridge.connected, let level = bridge.battery {
-                    Text("Phone battery \(level)%\(bridge.charging ? " · charging" : "")")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
+                .buttonStyle(PillButtonStyle())
+                Spacer()
+                Text("Settings").font(.system(size: 17, weight: .semibold))
+                Spacer()
+                Button { openWindow(id: "phone") } label: { Label("Phone", systemImage: "iphone.gen3") }
+                    .buttonStyle(PillButtonStyle())
             }
+            .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 8)
+            SettingsView(bridge: bridge, store: bridge.phone, rules: bridge.rules, speech: bridge.speech, battery: bridge.batteryWatch,
+                         focus: bridge.focusLink, history: bridge.history)
         }
-    }
-
-    private var actions: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Button { openWindow(id: "phone") } label: { Label("Messages · Photos · Calls", systemImage: "iphone") }
-                    .buttonStyle(.borderedProminent)
-                Button { openWindow(id: "type") } label: { Label("Type on phone", systemImage: "keyboard") }
-            }
-            HStack(spacing: 8) {
-                Button(bridge.phoneRinging ? "Stop ringing" : "Ring phone") { bridge.toggleRing() }
-                Button("Send file…") { bridge.pickFile() }
-                Button("Send browser tab") { bridge.mac.sendTabToPhone() }
-                Button("SMS…") { bridge.composeSMS() }
-            }
-        }
-        .disabled(!bridge.connected)
-    }
-
-    @ViewBuilder private var lockSection: some View {
-        Toggle(isOn: $presence.enabled) {
-            Text(presence.status).foregroundStyle(.secondary)
-        }
-        if presence.enabled {
-            Picker("Lock when phone is", selection: $presence.sensitivity) {
-                ForEach(Presence.Sensitivity.allCases) { Text($0.label).tag($0) }
-            }
-            caption("Locks after 20 s without keyboard/mouse use while the phone is away; wakes the screen when it's back (unlock with Touch ID). Needs “Nearby devices” allowed on the phone.")
-        }
-    }
-
-    @ViewBuilder private var appsSection: some View {
-        HStack(spacing: 10) {
-            Button("Open apps…") { bridge.phone.tab = .apps; openWindow(id: "phone") }.buttonStyle(.borderedProminent)
-            Button("Show phone screen") { bridge.mirror() }
-        }
-        .disabled(!bridge.connected)
-        switch streamer.status {
-        case .ready:
-            caption("Session running — Developer options are on until you close the last phone window. Clipboard syncs automatically.")
-        case .connecting:
-            caption("Connecting to your phone…")
-        case .idle:
-            caption("Apps open in their own windows while your phone stays free. PhoneBridge switches Developer options on only while a phone window is open (phone on Wi-Fi). On a hotspot it shows the phone's screen instead.")
-        case .notPaired:
-            caption("Right now apps open by showing the phone's screen. For apps in their own windows while your phone stays free, do the one-time setup (on Wi-Fi). Afterwards Developer options stay off except while you use a phone app here.")
-            Button("One-time setup…") { ui.showSetup = true }
-        case .missingTools:
-            caption("Needs adb and scrcpy: run  brew install --cask android-platform-tools  and  brew install scrcpy")
-        }
-    }
-
-    @ViewBuilder private var micSection: some View {
-        HStack(spacing: 6) {
-            Circle().fill(mic.active ? Color.red : Color.secondary.opacity(0.4)).frame(width: 8, height: 8)
-            Text(mic.status).font(.callout)
-        }
-        caption("Start it from the phone (🎙 Mic to Mac). It plays into the free BlackHole virtual device — install once with  brew install blackhole-2ch  in Terminal, then pick “BlackHole 2ch” as the microphone in Zoom, Meet or Teams.")
-    }
-
-    private func section<Content: View>(_ title: String, _ icon: String, @ViewBuilder content: () -> Content) -> some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 8) {
-                Label(title, systemImage: icon).font(.headline)
-                content()
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(6)
-        }
+        .frame(width: 500, height: 720)
+        .background(themes.current.bg)
+        .preferredColorScheme(.dark)
+        .tint(Theme.accent)
+        .id(themes.current.id)
     }
 
     private func caption(_ s: String) -> some View {
         Text(s).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+    }
+
+    private var heroLine: String {
+        var parts = ["Connected"]
+        if let level = bridge.battery { parts.append("\(level)%\(bridge.charging ? " · charging" : "")") }
+        return parts.joined(separator: " · ")
+    }
+
+    private var brandHeader: some View {
+        VStack(spacing: 10) {
+            ThemeGlyph(theme: themes.current).frame(width: 34, height: 34)
+                .frame(width: 68, height: 68)
+                .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.white.opacity(0.05)))
+                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color.white.opacity(0.12)))
+            Text("PhoneBridge").font(.system(size: 28, weight: .regular, design: .serif))
+            HStack(spacing: 6) {
+                Circle().fill(bridge.connected ? Theme.green : Color.orange).frame(width: 7, height: 7)
+                Text(bridge.status).font(.system(size: 12.5)).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
+    }
+
+    private var actionGrid: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
+            ActionTile(icon: "iphone.gen3", title: "Phone", primary: true) { openWindow(id: "phone") }
+            ActionTile(icon: "keyboard", title: "Type") { openWindow(id: "type") }
+            ActionTile(icon: "bell.and.waves.left.and.right", title: bridge.phoneRinging ? "Stop ring" : "Ring phone", active: bridge.phoneRinging) { bridge.toggleRing() }
+            ActionTile(icon: "square.and.arrow.up", title: "Send file") { bridge.pickFile() }
+            ActionTile(icon: "safari", title: "Browser tab") { bridge.mac.sendTabToPhone() }
+            ActionTile(icon: "message", title: "SMS") { bridge.composeSMS() }
+        }
     }
 }
 
@@ -151,20 +139,21 @@ struct NowPlayingCard: View {
                 else { Image(systemName: "music.note").font(.title).frame(maxWidth: .infinity, maxHeight: .infinity).background(.quaternary) }
             }
             .frame(width: 54, height: 54)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
-                Text(np.title).font(.headline).lineLimit(1)
+                Text(np.title).font(.system(size: 14.5, weight: .semibold)).lineLimit(1)
                 Text(np.artist.isEmpty ? np.app : "\(np.artist) · \(np.app)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
-            Button { bridge.mediaCommand("prev") } label: { Image(systemName: "backward.fill") }.buttonStyle(.borderless)
+            Button { bridge.mediaCommand("prev") } label: { Image(systemName: "backward.fill") }.buttonStyle(.plain)
             Button { bridge.mediaCommand("play_pause") } label: {
-                Image(systemName: np.playing ? "pause.fill" : "play.fill").font(.title2)
-            }.buttonStyle(.borderless)
-            Button { bridge.mediaCommand("next") } label: { Image(systemName: "forward.fill") }.buttonStyle(.borderless)
+                Image(systemName: np.playing ? "pause.fill" : "play.fill").font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.onAccent)
+                    .frame(width: 38, height: 38).background(Circle().fill(Theme.accent))
+            }.buttonStyle(.plain)
+            Button { bridge.mediaCommand("next") } label: { Image(systemName: "forward.fill") }.buttonStyle(.plain)
         }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 12).fill(.quaternary.opacity(0.5)))
+        .padding(12)
+        .card(18)
     }
 }
 

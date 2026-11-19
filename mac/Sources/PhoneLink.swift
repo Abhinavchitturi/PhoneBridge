@@ -86,7 +86,7 @@ final class PhoneLink {
             self.startBrowser()
             self.attempt = 0
             self.conn?.cancel()
-            self.queue.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.tick() }
+            self.queue.asyncAfter(deadline: .now() + 0.4) { self.tick() }
         }
     }
 

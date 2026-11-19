@@ -69,8 +69,11 @@ class ClipActivity : Activity() {
         if (!hasFocus || done) return
         done = true
         val ok = Link.isConnected && Clip.sendCurrent(this)
-        Toast.makeText(this, if (ok) "Clipboard sent to Mac" else "Not connected / clipboard empty", Toast.LENGTH_SHORT).show()
+        if (!intent.getBooleanExtra("auto", false)) {
+            Toast.makeText(this, if (ok) "Clipboard sent to Mac" else "Not connected / clipboard empty", Toast.LENGTH_SHORT).show()
+        }
         finish()
+        overridePendingTransition(0, 0)
     }
 }
 

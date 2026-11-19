@@ -124,8 +124,8 @@ final class H264Decoder: @unchecked Sendable {
     }
 }
 
-/// The window showing the phone. Click = tap, drag = swipe, hold = long-press, scroll = swipe,
-/// typing goes into the focused text box, Esc = Back.
+/// The window showing the phone (view only). Typing goes into the focused text box on the phone, which needs the
+/// PhoneBridge keyboard selected there.
 @MainActor
 final class CastWindow: NSObject, NSWindowDelegate {
     var send: ([String: Any]) -> Void = { _ in }
@@ -195,14 +195,7 @@ final class CastWindow: NSObject, NSWindowDelegate {
                                      label.centerYAnchor.constraint(equalTo: v.centerYAnchor),
                                      label.widthAnchor.constraint(lessThanOrEqualTo: v.widthAnchor, constant: -30)])
 
-        let bar = NSStackView(views: [
-            navButton("chevron.backward", "Back") { [weak self] in self?.nav("back") },
-            navButton("circle", "Home") { [weak self] in self?.nav("home") },
-            navButton("square.on.square", "Recent apps") { [weak self] in self?.nav("recents") },
-        ])
-        bar.distribution = .fillEqually
-        bar.edgeInsets = NSEdgeInsets(top: 4, left: 30, bottom: 6, right: 30)
-        let stack = NSStackView(views: [v, bar])
+        let stack = NSStackView(views: [v])
         stack.orientation = .vertical
         stack.spacing = 0
         v.setContentHuggingPriority(.defaultLow, for: .vertical)
@@ -238,22 +231,13 @@ final class CastWindow: NSObject, NSWindowDelegate {
         waiting.stringValue = text
     }
 
-    private func navButton(_ symbol: String, _ tip: String, action: @escaping () -> Void) -> NSButton {
-        let b = ClosureButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: tip)!, action: action)
-        b.bezelStyle = .texturedRounded
-        b.toolTip = tip
-        return b
-    }
-
-    private func nav(_ action: String) { send(["t": "cast_input", "kind": "nav", "action": action]) }
-
     /// Size the window to the phone's shape, ~85% of the screen's height.
     private func fitWindow() {
         guard let window, let screen = window.screen ?? NSScreen.main else { return }
         let maxW = screen.visibleFrame.width * 0.9
         let maxH = screen.visibleFrame.height * 0.85
         let scale = min(maxW / videoSize.width, maxH / videoSize.height)
-        window.setContentSize(NSSize(width: videoSize.width * scale, height: videoSize.height * scale + 36))
+        window.setContentSize(NSSize(width: videoSize.width * scale, height: videoSize.height * scale))
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -336,89 +320,10 @@ final class CastView: NSView {
         return CGPoint(x: (p.x - r.minX) / r.width, y: 1 - (p.y - r.minY) / r.height)
     }
 
-    // Live touch: mouse down = finger down, drag = finger moves (sent ~40×/s), up = finger lifts.
-    // Taps, long-presses, drags and flings all come out of that naturally on the phone.
-    private var lastMoveSent = Date.distantPast
-    private var pendingMove: CGPoint?
-
-    private func touch(_ phase: String, _ p: CGPoint) {
-        send(["t": "cast_input", "kind": phase, "x": min(max(p.x, 0), 1), "y": min(max(p.y, 0), 1)])
-    }
-
-    private func moveThrottled(_ p: CGPoint) {
-        if Date().timeIntervalSince(lastMoveSent) >= 0.025 {
-            lastMoveSent = Date()
-            pendingMove = nil
-            touch("move", p)
-        } else {
-            pendingMove = p
-        }
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
-        endScroll()
-        touch("down", normalized(event))
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        moveThrottled(normalized(event))
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        if let p = pendingMove { touch("move", p) }
-        pendingMove = nil
-        touch("up", normalized(event))
-    }
-
-    override func rightMouseDown(with event: NSEvent) {
-        send(["t": "cast_input", "kind": "nav", "action": "back"])
-    }
-
-    // Trackpad/mouse scrolling becomes a live finger drag from the pointer, so the page follows your fingers.
-    private var scrollPoint: CGPoint?
-    private var scrollEnd: Timer?
-
-    override func scrollWheel(with event: NSEvent) {
-        let r = videoRect
-        let dx = event.scrollingDeltaX / r.width * (event.hasPreciseScrollingDeltas ? 1.0 : 12)
-        let dy = event.scrollingDeltaY / r.height * (event.hasPreciseScrollingDeltas ? 1.0 : 12)
-        if scrollPoint == nil {
-            let start = normalized(event)
-            scrollPoint = start
-            touch("down", start)
-        }
-        guard var p = scrollPoint else { return }
-        p.x += dx
-        p.y += dy // natural scrolling: the "finger" moves the way your fingers do, so content follows them
-        // Ran out of screen: lift and start again from the pointer.
-        if p.y < 0.03 || p.y > 0.97 || p.x < 0.03 || p.x > 0.97 {
-            endScroll()
-            return
-        }
-        scrollPoint = p
-        moveThrottled(p)
-        scrollEnd?.invalidate()
-        scrollEnd = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.endScroll() }
-        }
-    }
-
-    private func endScroll() {
-        scrollEnd?.invalidate()
-        scrollEnd = nil
-        guard let p = scrollPoint else { return }
-        scrollPoint = nil
-        if let pending = pendingMove { touch("move", pending) }
-        pendingMove = nil
-        touch("up", p)
-    }
-
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
         case 51: send(["t": "cast_input", "kind": "backspace"])
         case 36, 76: send(["t": "cast_input", "kind": "enter"])
-        case 53: send(["t": "cast_input", "kind": "nav", "action": "back"])
         default:
             if let chars = event.characters, !chars.isEmpty, !event.modifierFlags.contains(.command) {
                 send(["t": "cast_input", "kind": "text", "text": chars])

@@ -95,6 +95,7 @@ object AutoReply {
             Link.send("alert", "title" to "Texted $who", "body" to message)
             val n = Notification.Builder(ctx, Channels.FILES)
                 .setSmallIcon(R.drawable.ic_stat_bridge)
+                .setColor(ThemeStore.get(ctx).accent)
                 .setContentTitle("Auto-replied to $who")
                 .setContentText(message)
                 .setAutoCancel(true)

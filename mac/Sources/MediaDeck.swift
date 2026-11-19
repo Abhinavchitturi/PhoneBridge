@@ -20,7 +20,8 @@ final class MediaDeck: @unchecked Sendable {
     // MARK: Phone → Mac
 
     func on() {
-        queue.async {
+        queue.async { [weak self] in
+            guard let self else { return }
             self.lastPing = Date()
             if self.timer == nil {
                 let t = DispatchSource.makeTimerSource(queue: self.queue)

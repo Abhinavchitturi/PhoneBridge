@@ -179,7 +179,7 @@ private struct RingingCard: View {
         }
         .padding(.horizontal, 16)
         .frame(width: 360, height: 92)
-        .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(.regularMaterial))
+        .themedSurface(22)
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(.white.opacity(0.08)))
     }
 }
@@ -231,7 +231,6 @@ private struct ActiveCallCard: View {
             HStack(spacing: 10) {
                 control("mic.slash.fill", "Mute", on: model.muted) { model.control("mute") }
                 control("speaker.wave.3.fill", "Speaker", on: model.speaker) { model.control("speaker") }
-                control("pause.fill", "Hold", on: model.held) { model.control("hold") }
                 Button { model.hangUp() } label: {
                     VStack(spacing: 4) {
                         Image(systemName: "phone.down.fill").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
@@ -245,7 +244,7 @@ private struct ActiveCallCard: View {
         }
         .padding(.horizontal, 16)
         .frame(width: 360, height: model.waiting != nil ? 232 : 168)
-        .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(.regularMaterial))
+        .themedSurface(24)
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(.white.opacity(0.08)))
     }
 
@@ -277,7 +276,7 @@ private struct ActiveCallCard: View {
         Button(action: action) {
             VStack(spacing: 4) {
                 Image(systemName: icon).font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(on ? Color.white : .primary)
+                    .foregroundStyle(on ? Theme.onAccent : .primary)
                     .frame(width: 44, height: 40)
                     .background(Capsule().fill(on ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.primary.opacity(0.1))))
                 Text(title).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)

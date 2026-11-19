@@ -116,31 +116,6 @@ object DeviceTools {
         sendInfo(ctx)
     }
 
-    fun lock(ctx: Context) {
-        val svc = TypingService.instance
-        if (svc == null) {
-            Link.send("alert", "title" to "Turn on control from the Mac",
-                "body" to "On the phone: PhoneBridge → Type from Mac → switch on PhoneBridge in Accessibility, then lock works.")
-            return
-        }
-        svc.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
-    }
-
-    /** Wake the phone, swipe past the lock screen, and tap in [pin] if one is given (never stored or logged). */
-    fun unlock(ctx: Context, pin: String?) {
-        val svc = TypingService.instance
-        if (svc == null) {
-            Link.send("alert", "title" to "Turn on control from the Mac",
-                "body" to "On the phone: PhoneBridge → Type from Mac → switch on PhoneBridge in Accessibility, then unlock works.")
-            return
-        }
-        thread {
-            val problem = try { svc.unlockBlocking(pin) } catch (e: Exception) { "Unlock failed: ${e.message}" }
-            Link.send("alert", "title" to (if (problem == null) "Phone woken" else "Couldn't unlock"),
-                "body" to (problem ?: if (pin.isNullOrEmpty()) "Screen on and swiped up." else "PIN entered — check your phone."))
-        }
-    }
-
     // MARK: Find my phone
 
     fun sendLocation(ctx: Context) = thread {

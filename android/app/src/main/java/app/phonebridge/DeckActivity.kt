@@ -26,12 +26,14 @@ class DeckActivity : Activity() {
     private var shownKind: String? = null
     private var shownError: String? = null
 
-    private val bg = 0xFF0E1016.toInt()
-    private val panel = 0xFF1A1D27.toInt()
-    private val chip = 0xFF262A38.toInt()
-    private val text = 0xFFF2F3F7.toInt()
-    private val muted = 0xFF9097A8.toInt()
-    private val brand = 0xFF5C6BC0.toInt()
+    private val theme get() = ThemeStore.get(this)
+    private val bg get() = theme.bg
+    private val panel get() = theme.card
+    private val chip get() = theme.chip
+    private val text get() = theme.text
+    private val muted get() = theme.muted
+    private val brand get() = theme.accent
+    private val onBrand get() = theme.onAccent
     private val green = 0xFF4CD08A.toInt()
 
     // Views that get updated by each state
@@ -322,7 +324,7 @@ class DeckActivity : Activity() {
     private fun mark(v: TextView, on: Boolean, name: String) {
         v.alpha = 1f
         v.background = rounded(if (on) brand else chip, 18)
-        v.setTextColor(if (on) 0xFFFFFFFF.toInt() else muted)
+        v.setTextColor(if (on) onBrand else muted)
         val icon = v.text.toString().substringBefore('\n')
         v.text = "$icon\n$name"
     }

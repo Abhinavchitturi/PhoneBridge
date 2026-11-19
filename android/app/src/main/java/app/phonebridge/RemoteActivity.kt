@@ -30,12 +30,14 @@ class RemoteActivity : Activity() {
     private val tabs = mutableListOf<TextView>()
     private var mode = 0 // 0 trackpad, 1 keyboard, 2 slides
 
-    private val bg = 0xFF0E1016.toInt()
-    private val panel = 0xFF1A1D27.toInt()
-    private val chip = 0xFF262A38.toInt()
-    private val text = 0xFFF2F3F7.toInt()
-    private val muted = 0xFF9097A8.toInt()
-    private val brand = 0xFF5C6BC0.toInt()
+    private val theme get() = ThemeStore.get(this)
+    private val bg get() = theme.bg
+    private val panel get() = theme.card
+    private val chip get() = theme.chip
+    private val text get() = theme.text
+    private val muted get() = theme.muted
+    private val brand get() = theme.accent
+    private val onBrand get() = theme.onAccent
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -75,7 +77,7 @@ class RemoteActivity : Activity() {
         mode = i
         tabs.forEachIndexed { j, t ->
             t.background = if (j == i) rounded(brand, 100) else null
-            t.setTextColor(if (j == i) 0xFFFFFFFF.toInt() else muted)
+            t.setTextColor(if (j == i) onBrand else muted)
         }
         body.removeAllViews()
         body.addView(when (i) { 0 -> trackpad(); 1 -> keyboard(); else -> slides() })

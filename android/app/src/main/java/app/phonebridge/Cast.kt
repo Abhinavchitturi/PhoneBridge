@@ -29,7 +29,7 @@ import kotlin.concurrent.thread
  * Phone screen → Mac using Android's own screen casting (no debugging needed, works over a hotspot).
  * Android asks for permission every session ("Start recording or casting?"); with Android 14+ you can
  * choose one app or the entire screen. Video is H.264 from the hardware encoder, sent over the
- * encrypted link; the Mac's clicks come back as taps/swipes through TypingService (accessibility).
+ * encrypted link; typing from the Mac goes through the PhoneBridge keyboard.
  */
 object ScreenCaster {
     private const val MAX_SIDE = 1600
@@ -65,12 +65,10 @@ object ScreenCaster {
     fun request(ctx: Context, app: String?) {
         pendingApp = app
         if (running) {
-            app?.let { TypingService.instance?.launch(it) }
             return
         }
         val open = Intent(ctx, CastActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        // With the accessibility service on, Android lets us bring the prompt up straight away.
-        if (MainActivity.visible || TypingService.instance != null) {
+        if (MainActivity.visible) {
             try {
                 ctx.startActivity(open)
                 return
@@ -80,6 +78,7 @@ object ScreenCaster {
         }
         val n = Notification.Builder(ctx, Channels.PAIR)
             .setSmallIcon(R.drawable.ic_stat_bridge)
+            .setColor(ThemeStore.get(ctx).accent)
             .setContentTitle("Show your phone on the Mac?")
             .setContentText("Tap to start casting")
             .setContentIntent(PendingIntent.getActivity(ctx, 8, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
