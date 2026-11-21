@@ -5,63 +5,153 @@
 <h1 align="center">PhoneBridge</h1>
 
 <p align="center">
-  Your Android phone on your Mac: notifications, calls, messages, photos, clipboard and files.<br>
-  No account, no cloud, no PhoneBridge servers. Everything stays between your two devices.
+  <b>Your Android phone, built into your Mac.</b><br>
+  Calls, messages, notifications, files, clipboard and more, in one free, open-source app.<br>
+  No account, no cloud, no servers. Everything stays between your own two devices.
 </p>
 
 <p align="center">
   <a href="https://github.com/Abhinavchitturi/PhoneBridge/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Abhinavchitturi/PhoneBridge?color=2ea44f"></a>
-  <img alt="Platforms" src="https://img.shields.io/badge/macOS-15%2B-black">
-  <img alt="Android" src="https://img.shields.io/badge/Android-13%2B-3ddc84">
+  <img alt="macOS 15+" src="https://img.shields.io/badge/macOS-15%2B-black">
+  <img alt="Android 13+" src="https://img.shields.io/badge/Android-13%2B-3ddc84">
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue"></a>
 </p>
 
-## Download
+## ⬇️ Download
 
-| | Get it | Needs |
+| Device | Download | Requires |
 |---|---|---|
-| **Mac** | [**PhoneBridge.dmg**](https://github.com/Abhinavchitturi/PhoneBridge/releases/latest/download/PhoneBridge.dmg) | macOS 15 or later |
-| **Android phone** | [**PhoneBridge.apk**](https://github.com/Abhinavchitturi/PhoneBridge/releases/latest/download/PhoneBridge.apk) | Android 13 or later |
+| 💻 **Mac** | [**PhoneBridge.dmg**](https://github.com/Abhinavchitturi/PhoneBridge/releases/latest/download/PhoneBridge.dmg) | macOS 15 or later |
+| 📱 **Android phone** | [**PhoneBridge.apk**](https://github.com/Abhinavchitturi/PhoneBridge/releases/latest/download/PhoneBridge.apk) | Android 13 or later |
 
-You need **both**: install the Mac app and the phone app, then connect them once. All versions and checksums are on the [Releases page](https://github.com/Abhinavchitturi/PhoneBridge/releases).
+You need **both**: the Mac app and the phone app. Install them, then pair them once ([steps below](#-get-started-in-3-steps)). Older versions and SHA-256 checksums are on the [Releases page](https://github.com/Abhinavchitturi/PhoneBridge/releases).
 
-## Install
+---
 
-### On the Mac
-1. Open **PhoneBridge.dmg** and drag **PhoneBridge** onto **Applications**.
-2. Open it from Launchpad. The first time, macOS says the app is from an unidentified developer (it isn't sold through the App Store): **right-click the app → Open → Open**. If you don't get that button, run this once and open it again:
+## 🚀 Get started in 3 steps
+
+### 1. Install on your Mac
+1. Open **PhoneBridge.dmg** and drag **PhoneBridge** into **Applications**.
+2. Open it. Because PhoneBridge isn't from the App Store, macOS warns that it's from an unidentified developer the first time. **Right-click the app → Open → Open**. If there's no Open button, run this once in Terminal and try again:
    ```bash
    xattr -dr com.apple.quarantine /Applications/PhoneBridge.app
    ```
-3. PhoneBridge lives in the **menu bar** (top right). Allow **Notifications** and **Local Network** when macOS asks. Other permissions are only asked for when you turn the feature on.
+3. PhoneBridge lives in the **menu bar**. Allow **Notifications** and **Local Network** when macOS asks. Other permissions are requested only when you turn on the feature that needs them.
 
-### On the phone
-1. Download **PhoneBridge.apk** on the phone (or send it from the Mac) and open it. Android asks to allow installs from that app; allow it.
-2. Google Play Protect may warn about an app from outside the Play Store. Tap **More details → Install anyway** (the plain text, not the blue button). Samsung phones: turn **Auto Blocker** off only while installing.
-3. Open **PhoneBridge** and follow the setup card: allow **Calls**, **SMS**, **Notifications**, **Photos** and **notification access**, and let it **run in the background** (optional: switch on the **PhoneBridge keyboard** to type on the phone from the Mac). If a switch is greyed out, see [Allowing SMS, calls and notifications](#allowing-sms-calls-and-notifications-on-android-restricted-settings).
+### 2. Install on your phone
+1. Download **PhoneBridge.apk** on the phone (or send it over from the Mac) and open it. Allow installs from that source when Android asks.
+2. If Google Play Protect warns about an app from outside the Play Store, tap **More details → Install anyway**. On Samsung phones, turn **Auto Blocker** off just while installing.
+3. Open **PhoneBridge** and follow the setup card: allow **Calls**, **SMS**, **Notifications**, **Photos** and **notification access**, and let it **run in the background**. Every permission is optional. Skip any feature you don't want. If a switch is greyed out, see [Allowing SMS, calls and notifications](#allowing-sms-calls-and-notifications-restricted-settings).
 
-### Connect them
-Open PhoneBridge on both, on the same Wi-Fi (a phone hotspot works too). Both show a 6-digit code: if they match, tap **Pair** on both. You only do this once.
+### 3. Pair them
+Open PhoneBridge on both devices on the same Wi-Fi (a phone hotspot works too). They find each other and both show the same **6-digit code**. If the codes match, tap **Pair** on both. You only do this once.
 
-Developed and tested on a MacBook Air (macOS 27) with a Samsung Galaxy phone (One UI 8, Android 16). Open source under the MIT license.
+---
 
-| Folder | What |
-|---|---|
-| `mac/` | Menu-bar app (Swift, builds without Xcode) |
-| `android/` | Companion app (Kotlin), signed with the same key every release so updates install over the old one |
+## ✨ Features
 
-## Features
-- 🔔 Phone notifications on the Mac — reply inline (a corner pop-up with a ready text box for chat apps), dismissing on one side dismisses on the other
-- 📞 Incoming calls with contact name — **Answer** / **Decline** from the Mac; during a call, a card with the time talked, **Mute**, **Speaker** and **End** (voice stays on the phone)
-- 💬 Messages, 📷 photos and videos (with drag-and-drop to Finder), 📋 clipboard (Mac → phone automatic; phone → Mac via the quick-settings tile or **Share → Send to Mac**), 📁 files both ways
-- 🎵 Now playing both ways, 🔊 ring your phone, 🔋 battery with time-to-full, 📍 find my phone, 🔦 flashlight and ringer controls
-- 📝 A notepad shared between the phone and the Mac, ⌘K search across everything on the phone
-- ⌨️ Type on the Mac into the phone's focused text box (select the **PhoneBridge keyboard** on the phone first)
-- ✉️ Missed-call auto-reply by SMS ("I'm busy, I'll call you back"), done by the phone itself
-- 🎨 **Themes**: a minimal dark look with a floating dock, and six themes to pick from (Midnight, Batman, Spider-Man, Iron Man, Thor, Matrix), each with its own artwork and animation (bats flapping across, a spider on its thread, a pulsing arc reactor, lightning, falling code) plus a short burst when you pick it. The theme is shared: pick it on the phone and the Mac (and its menu bar icon) switch too, and the other way round. The home screen has an animated banner per theme (Spider-Man swinging across between buildings, Iron Man flying with a reactor beam, Thor catching his hammer, the Bat-signal and the Batmobile, a Midnight bridge with data packets, Matrix code rain). Buttons puff out a small themed effect and tick on press, changing tabs plays a themed flourish, and picking a theme, opening the app and connecting each play that theme's character sequence (Thor drops in with lightning, looks up and leaps off; Spider-Man swings in, lands, looks up and swings away; Iron Man lands, looks up, fires missiles and flies off; Batman brings the signal, bats and the Batmobile; Matrix rains code; Midnight draws a constellation bridge). The long settings live in Settings. Phone: Themes tab. Mac: Settings → Appearance.
-- 🔒 **Lock when you walk away**: when the phone's Bluetooth beacon fades and the Mac has been idle for a bit, the Mac locks; when the phone comes back, the screen wakes. Switch it off or change the distance in the menu.
+### 📞 Calls and messages
+- **Calls on your Mac:** see who's calling, **Answer** or **Decline** from the Mac, then **Mute**, **Speaker** or **End** from an in-call card with a timer. The voice stays on the phone.
+- **Notifications on your Mac:** reply right from a pop-up with a ready text box. Dismiss on one device and it's dismissed on the other.
+- **Smart replies:** three suggested replies on chat notifications, written on-device by Apple Intelligence. Nothing leaves your Mac. Needs a Mac with Apple Intelligence turned on.
+- **Messages, call history and notification history**, searchable from the Mac.
+- **Login codes:** one-time codes from texts go straight to your Mac's clipboard, kept out of clipboard history and wiped after 60 seconds.
+- **Missed-call auto-reply:** the phone can text back *"I'm busy, I'll call you back"* for you.
 
-## How it works
+### 📁 Files, photos and clipboard
+- **Send files both ways** in one click, or drop files on the menu bar icon.
+- **Photos and videos** from the phone, with drag-and-drop into Finder.
+- **Shared clipboard** with history: Mac → phone automatically, phone → Mac with **Share → Send to Mac** or the quick-settings tile.
+- **Shared notepad** that syncs as you type, on both devices.
+- **Screenshots:** phone screenshots arrive on the Mac automatically, and new Mac screenshots can go to the phone.
+- **Scan to Mac:** scan a document with the phone's camera, crop and clean it up, and it lands on your Mac.
+
+### 💻 Your phone, on your Mac
+- **Phone apps in their own windows:** open any app from the phone in a window on your Mac and use it with your mouse and keyboard.
+- **Type from Mac:** type on your Mac keyboard into any text box on the phone (switch on the **PhoneBridge keyboard** on the phone first).
+- **Phone as a microphone** for Zoom, Meet or Teams on the Mac (uses the free [BlackHole](https://github.com/ExistentialAudio/BlackHole) virtual audio device).
+
+### 📱 Your Mac, from your phone
+- **Trackpad and keyboard:** use the phone as a trackpad (one finger to move, tap to click, two fingers to scroll) or as a keyboard for the Mac.
+- **Mac's tab:** open the page you were viewing in your Mac's browser on the phone, so you can carry on as you leave.
+- **Remote controls:** lock or sleep the Mac, control its music and volume, and run any of your Mac **Shortcuts**.
+- **Find Mac:** play a sound on the Mac to find it.
+
+### 🔋 Device and security
+- **Battery** with charging status and time until full.
+- **Find my phone:** ring it, vibrate it, or see it on a map and open it in Maps.
+- **Quick controls:** flashlight, Do Not Disturb and ringer mode.
+- **Lock when you walk away:** the Mac locks when your phone leaves the room and wakes when it comes back. Switch it off or change the distance in Settings.
+- **Away from home:** with [Tailscale](https://tailscale.com) (free) on both devices, PhoneBridge reconnects even when they aren't on the same Wi-Fi.
+
+### 🎨 Themes
+A clean, minimal dark look with six themes to choose from: **Midnight, Batman, Spider-Man, Iron Man, Thor** and **Matrix**. Each has its own artwork and animations. Pick a theme on either device and the other switches too.
+
+---
+
+## 🔒 Privacy and security
+
+PhoneBridge is designed so your data never leaves your own devices.
+
+- **No account, no cloud, no analytics, no ads.** Your phone and Mac talk to each other directly. There are no PhoneBridge servers.
+- **End-to-end encrypted.** After pairing, everything is encrypted with AES-256-GCM, using keys from an X25519 key agreement. Every connection uses fresh keys, so a stolen long-term key can't decrypt past sessions (forward secrecy).
+- **You verify the pairing.** The matching 6-digit code on both screens protects against anyone connecting in between. After pairing, each device talks only to the other and refuses everything else.
+- **Keys are stored securely:** in the Keychain on the Mac, and sealed with an Android Keystore key on the phone (hardware-backed where available).
+- **Every permission is optional.** Don't want PhoneBridge to read your texts? Leave SMS access off and use everything else.
+- **Open source and testable.** The protocol is in [`mac/Sources/Crypto.swift`](mac/Sources/Crypto.swift) and [`android/app/src/main/java/app/phonebridge/Crypto.kt`](android/app/src/main/java/app/phonebridge/Crypto.kt), with unit tests that check both sides derive identical keys and codes.
+- **One third-party component:** Scan to Mac uses Google's on-device document scanner from Google Play Services.
+
+**Limits:** PhoneBridge has not had an independent security audit, and it can't protect you if the phone or the Mac is already compromised. "Lock when you walk away" is a convenience, not a vault, so also use FileVault and Find My. To report a security issue, see [SECURITY.md](SECURITY.md).
+
+---
+
+## 🛠️ Troubleshooting
+
+### Allowing SMS, calls and notifications ("restricted settings")
+Android 13 and later block some permissions, such as **SMS, call log and notification access**, for apps installed outside the Play Store. The switches may look greyed out or say *"App was denied access"*. This is an Android safeguard, not a bug, and it doesn't need root.
+
+1. Open **Settings → Apps → PhoneBridge**.
+2. Tap **⋮** (top right) → **Allow restricted settings**. If you don't see ⋮, try granting the permission once so Android registers the block, then come back.
+3. Return to PhoneBridge and tap the permission again. It can now be granted.
+
+PhoneBridge uses these permissions only for what they say: SMS for the Messages tab and the missed-call auto-reply; call log, contacts and phone state to show who's calling; notification access to mirror and reply to notifications.
+
+### The devices don't find each other
+- Make sure both are on the **same Wi-Fi network**, or that the Mac is on the phone's hotspot.
+- Allow **Local Network** for PhoneBridge on the Mac: **System Settings → Privacy & Security → Local Network**.
+- Some public and office networks block devices from seeing each other. Use the phone's hotspot or [Tailscale](https://tailscale.com) instead.
+- Tap **Search again** on the Mac.
+
+### Phone apps open as a mirrored screen instead of separate windows
+Separate app windows need a one-time setup on Wi-Fi. On the Mac, go to **Settings → Phone apps & screen → One-time setup**. It uses `adb` and `scrcpy`:
+```bash
+brew install --cask android-platform-tools
+```
+```bash
+brew install scrcpy
+```
+
+---
+
+## ⌨️ Command line and Shortcuts
+
+While PhoneBridge is running, it keeps a small command-line tool at `~/.phonebridge/pb`. It talks to the app over a private socket that only you can read, so it works from Terminal, scripts and the Shortcuts app (use a **Run Shell Script** action).
+
+```sh
+~/.phonebridge/pb send report.pdf photo.jpg   # send files to the phone
+~/.phonebridge/pb ring                        # ring the phone ("pb ring off" to stop)
+~/.phonebridge/pb clip "text"                 # put text on the phone's clipboard (or: pbpaste | pb clip)
+~/.phonebridge/pb status                      # "connected" / "not connected"; exit code 0 / 1
+```
+
+Exit codes: `0` done, `1` failed (for example, phone not connected), `2` wrong usage, `3` PhoneBridge isn't running. For a shorter command:
+```bash
+sudo ln -sf ~/.phonebridge/pb /usr/local/bin/pb
+```
+
+---
+
+## ⚙️ How it works
 
 ```mermaid
 flowchart LR
@@ -89,9 +179,9 @@ flowchart LR
   PL -. "Bluetooth beacon:<br/>phone is nearby" .-> Mac
 ```
 
-The phone listens on TCP port 47800 and advertises itself via Bonjour (`_phonebridge._tcp`). The Mac tries, in turn: Bonjour, the last address that worked, the default gateway (= the phone when the Mac is on its hotspot), and the phone's Tailscale address if you use Tailscale. Everything the two apps exchange goes over that one encrypted connection.
+The phone listens on TCP port 47800 and advertises itself over Bonjour (`_phonebridge._tcp`). The Mac tries, in order: Bonjour, the last address that worked, the default gateway (the phone, when the Mac is on its hotspot), and the phone's Tailscale address. Everything goes over that one encrypted connection.
 
-### Pairing and the encrypted link
+### Pairing and encryption
 
 ```mermaid
 sequenceDiagram
@@ -106,73 +196,58 @@ sequenceDiagram
   Note over Mac,Phone: Session keys = HKDF over the long-term and fresh secrets. Everything after this is AES-256-GCM encrypted.
 ```
 
-## Build from source
+---
 
-Only needed if you want to change the code; otherwise use the [downloads](#download) above.
+## 🧑‍💻 Build from source
 
-### What you need
-- **Mac:** macOS 15 or later with the Xcode Command Line Tools (`xcode-select --install`). Full Xcode is not needed.
-- **Phone app:** Android Studio (its bundled JDK and the Android SDK).
+Only needed if you want to change the code. Otherwise, use the downloads at the top of this page.
 
-### Mac app
+**Requirements**
+- **Mac app:** macOS 15 or later with the Xcode Command Line Tools (`xcode-select --install`). Full Xcode isn't needed.
+- **Phone app:** Android Studio (for its bundled JDK and the Android SDK).
+
+**Mac app**
 ```bash
 git clone https://github.com/Abhinavchitturi/PhoneBridge.git
 cd PhoneBridge/mac
-./make-cert.sh   # optional, once: a local signing identity so macOS keeps your permissions across rebuilds
+./make-cert.sh   # optional, once: a local signing identity so macOS keeps permissions across rebuilds
 ./build.sh
 open build/PhoneBridge.app
 ```
 
-### Phone app
+**Phone app**
 ```bash
 cd android
 JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew assembleRelease
 adb install -r app/build/outputs/apk/release/app-release.apk   # or send the file to the phone and open it
 ```
 
-### Make the download files
+**Release files**
 ```bash
-./release.sh    # builds both apps into release/: PhoneBridge-<version>.dmg and PhoneBridge-<version>.apk, with checksums
+./release.sh   # builds release/PhoneBridge-<version>.dmg and .apk, plus SHA256SUMS.txt
 ```
-To publish them: `gh release create v<version> release/PhoneBridge-<version>.dmg release/PhoneBridge-<version>.apk release/PhoneBridge.dmg release/PhoneBridge.apk release/SHA256SUMS.txt --generate-notes`. The plain-named copies are what keep the *latest* download links above working.
-
-## Command line and Shortcuts
-
-While PhoneBridge is running it keeps a small tool at `~/.phonebridge/pb`. It talks to the app over a private socket (`~/.phonebridge/pb.sock`, readable only by you), so it works from Terminal, scripts, and the Shortcuts app (add a **Run Shell Script** action and call it).
-
-```sh
-~/.phonebridge/pb send report.pdf photo.jpg   # send files to the phone
-~/.phonebridge/pb ring            # ring the phone ("pb ring off" to stop)
-~/.phonebridge/pb clip "text"     # put text on the phone's clipboard (or: pbpaste | pb clip)
-~/.phonebridge/pb status          # prints "connected" / "not connected"; exit code 0 / 1
+To publish:
+```bash
+gh release create v<version> release/PhoneBridge-<version>.dmg release/PhoneBridge-<version>.apk release/PhoneBridge.dmg release/PhoneBridge.apk release/SHA256SUMS.txt --generate-notes
 ```
+The plain-named `PhoneBridge.dmg` and `PhoneBridge.apk` copies keep the download links at the top of this page pointing to the latest version.
 
-Exit codes: 0 done, 1 failed (e.g. phone not connected), 2 wrong usage, 3 PhoneBridge isn't running. For a shorter command, `sudo ln -sf ~/.phonebridge/pb /usr/local/bin/pb`.
+### Project layout
 
-## Allowing SMS, calls and notifications on Android ("restricted settings")
+| Folder | What's inside |
+|---|---|
+| [`mac/`](mac) | The menu-bar app (Swift; builds without Xcode) |
+| [`android/`](android) | The phone app (Kotlin; signed with the same key every release, so updates install over the old version) |
+| [`docs/`](docs) | Icon and documentation assets |
 
-Recent Android versions (13 and later, and stricter with each release) block certain permissions — such as **SMS, call log and notification access** — for any app you install yourself (an APK that didn't come from the Play Store). This is an Android safeguard against malware, so the permission buttons can look disabled or say *"App was denied access"*. It isn't a bug, and it isn't root: you just have to tell Android that you trust this app.
+Developed and tested on a MacBook Air (macOS 27) with a Samsung Galaxy phone (One UI 8, Android 16).
 
-1. Open **Settings → Apps → PhoneBridge**.
-2. Tap **⋮** (top right) → **Allow restricted settings**. (If you don't see ⋮, first try to grant the permission once so Android registers the block, then come back.)
-3. Go back to PhoneBridge and tap the permission button again. SMS, calls and notification access can now be granted normally.
+---
 
-PhoneBridge needs these permissions for exactly what it says: reading and sending SMS for the Messages tab and the missed-call auto-reply; the call log, contacts and phone state to show who's calling; notification access to mirror and reply to notifications. See the next section for what happens to that data.
+## 🤝 Contributing
 
-## Security and privacy
+Bug reports, feature ideas and pull requests are welcome. Please open an [issue](https://github.com/Abhinavchitturi/PhoneBridge/issues) first for larger changes. If PhoneBridge is useful to you, a ⭐ on the repo helps others find it.
 
-PhoneBridge is designed so your data never leaves your own devices:
+## 📄 License
 
-- **No account, no cloud, no analytics, no ads.** Notifications, messages, photos, clipboard and files travel directly between your phone and your Mac. There are no PhoneBridge servers.
-- **End-to-end encrypted.** After pairing, everything is encrypted with AES-256-GCM using keys from an X25519 key agreement. Each connection also uses fresh keys, so a stolen long-term key can't decrypt past sessions (forward secrecy).
-- **Pairing is verified by you.** The 6-digit code on both screens guards against someone else connecting between your devices. After pairing, the Mac only talks to your phone and the phone only to your Mac, and each refuses other devices.
-- **Keys stay put.** On the Mac they're in the Keychain; on the phone they're sealed with a key in the Android Keystore (hardware-backed where available).
-- **It's open source.** The protocol is in `mac/Sources/Crypto.swift` and `android/app/src/main/java/app/phonebridge/Crypto.kt`, with unit tests that check both sides produce identical keys and codes. Read it, audit it, and please report anything wrong.
-- **Nothing goes over the internet.** The phone and the Mac only talk to each other, directly.
-- **One third-party component:** the "scan a document to the Mac" feature uses Google's on-device document scanner from Google Play Services.
-
-What this is **not**: it has not had an independent security audit, and it can't protect you if the phone or the Mac itself is already compromised. Locking the Mac when you walk away is a convenience, not a vault — someone who reaches the Mac before it locks, or boots it into Recovery, can still get in, so also use FileVault and Find My. If you find a security problem, see [SECURITY.md](SECURITY.md).
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
