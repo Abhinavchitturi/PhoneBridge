@@ -133,6 +133,7 @@ object Link {
         Battery.sendCurrent(app)
         ThemeStore.push(app)
         AutoReply.report(app)
+        SmsSwitch.report(app)
         MediaWatch.resend()
         NotifListener.instance?.reportDnd()
     }

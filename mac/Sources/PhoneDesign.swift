@@ -473,6 +473,15 @@ struct MessagesView: View {
     }
 
     var body: some View {
+        if store.smsOn { conversations } else {
+            EmptyState(icon: "message.badge.filled.fill", title: "SMS is turned off on your phone",
+                       subtitle: "PhoneBridge isn't reading or sending your texts. To turn it on, open PhoneBridge on the phone → Settings → SMS on Mac.")
+                .card(22)
+                .padding(.leading, 20).padding(.trailing, 18).padding(.bottom, 18)
+        }
+    }
+
+    private var conversations: some View {
         HStack(spacing: 14) {
             VStack(spacing: 10) {
                 SearchField(placeholder: "Search messages", text: $store.threadSearch)

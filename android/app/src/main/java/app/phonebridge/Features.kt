@@ -293,6 +293,10 @@ object Icons {
 
 object Sms {
     fun send(ctx: Context, to: String, text: String) {
+        if (!SmsSwitch.on(ctx)) {
+            Link.send("sms_result", "ok" to false, "to" to to, "error" to "SMS is turned off on your phone")
+            return
+        }
         val sms = ctx.getSystemService(SmsManager::class.java)
         val parts = sms.divideMessage(text)
         try {

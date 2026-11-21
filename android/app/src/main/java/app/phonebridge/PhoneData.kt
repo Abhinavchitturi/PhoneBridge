@@ -40,9 +40,36 @@ private class NameLookup(private val ctx: Context) {
     }
 }
 
+/**
+ * The "SMS on Mac" switch. When it's off PhoneBridge doesn't touch texts at all: the SMS receiver is disabled
+ * (Android stops waking it), the Mac gets no threads, codes or new-message pings, sending from the Mac is refused,
+ * and the missed-call auto-reply stays quiet. Only the phone can switch it back on.
+ */
+object SmsSwitch {
+    private const val KEY = "smsOn"
+
+    fun on(ctx: Context) = Prefs.get(ctx).getBoolean(KEY, true)
+
+    fun set(ctx: Context, on: Boolean) {
+        Prefs.get(ctx).edit().putBoolean(KEY, on).apply()
+        ctx.packageManager.setComponentEnabledSetting(
+            android.content.ComponentName(ctx, SmsReceiver::class.java),
+            if (on) android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+            else android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+            android.content.pm.PackageManager.DONT_KILL_APP,
+        )
+        report(ctx)
+    }
+
+    fun report(ctx: Context) {
+        Link.send("sms_state", "on" to on(ctx))
+    }
+}
+
 /** Incoming SMS: pushes one-time codes to the Mac clipboard and tells the Mac's Messages view to refresh. */
 class SmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        if (!SmsSwitch.on(context)) return
         val parts = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: return
         if (parts.isEmpty()) return
         val from = parts[0].displayOriginatingAddress
@@ -67,6 +94,7 @@ object Otp {
 
 object SmsData {
     fun sendThreads(ctx: Context) = thread {
+        if (!SmsSwitch.on(ctx)) { SmsSwitch.report(ctx); return@thread }
         val names = NameLookup(ctx)
         val seen = HashSet<Long>()
         val threads = JSONArray()
@@ -89,6 +117,7 @@ object SmsData {
     }
 
     fun sendThread(ctx: Context, thread: Long) = thread {
+        if (!SmsSwitch.on(ctx)) { SmsSwitch.report(ctx); return@thread }
         val msgs = JSONArray()
         ctx.contentResolver.query(
             Telephony.Sms.CONTENT_URI,

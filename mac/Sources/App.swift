@@ -494,7 +494,7 @@ final class Bridge: ObservableObject {
         case "alert":
             notifier.info(m["title"] as? String ?? "PhoneBridge", m["body"] as? String ?? "")
         case "sms_threads", "sms_thread", "sms_new", "photos", "albums", "photos_deleted", "call_log", "contacts",
-             "device", "torch_state", "biggest", "loc", "autoreply":
+             "device", "torch_state", "biggest", "loc", "autoreply", "sms_state":
             phone.handle(m)
         case "clip": if let t = m["text"] as? String { clipboard.setFromPhone(t) }
         case "clip_image":
@@ -532,7 +532,7 @@ final class Bridge: ObservableObject {
             }
         case "sms_result":
             let ok = m["ok"] as? Bool ?? false
-            notifier.info(ok ? "SMS sent" : "SMS failed", m["to"] as? String ?? "")
+            notifier.info(ok ? "SMS sent" : "SMS failed", (m["error"] as? String).map { "\(m["to"] as? String ?? ""): \($0)" } ?? m["to"] as? String ?? "")
         case "file_start", "file_chunk", "file_end": transfers.handle(m)
         default: break
         }
@@ -588,6 +588,10 @@ final class Bridge: ObservableObject {
     }
 
     func composeSMS() {
+        guard phone.smsOn else {
+            notifier.info("SMS is turned off on your phone", "Turn it on in PhoneBridge on the phone → Settings → SMS on Mac.")
+            return
+        }
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "Send SMS from your phone"

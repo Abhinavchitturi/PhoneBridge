@@ -41,7 +41,7 @@ You need **both**: the Mac app and the phone app. Install them, then pair them o
 ### 2. Install on your phone
 1. Download **PhoneBridge.apk** on the phone (or send it over from the Mac) and open it. Allow installs from that source when Android asks.
 2. If Google Play Protect warns about an app from outside the Play Store, tap **More details → Install anyway**. On Samsung phones, turn **Auto Blocker** off just while installing.
-3. Open **PhoneBridge** and follow the setup card: allow **Calls**, **SMS**, **Notifications**, **Photos** and **notification access**, and let it **run in the background**. Every permission is optional. Skip any feature you don't want. If a switch is greyed out, see [Allowing SMS, calls and notifications](#allowing-sms-calls-and-notifications-restricted-settings).
+3. Open **PhoneBridge** and follow the setup card: allow **Calls**, **SMS**, **Notifications**, **Photos** and **notification access**, and let it **run in the background**. Every permission is optional. Skip any feature you don't want, and if you'd rather not share texts at all, turn off **Settings → SMS on Mac**. If a switch is greyed out, see [Allowing SMS, calls and notifications](#allowing-sms-calls-and-notifications-restricted-settings).
 
 ### 3. Pair them
 Open PhoneBridge on both devices on the same Wi-Fi (a phone hotspot works too). They find each other and both show the same **6-digit code**. If the codes match, tap **Pair** on both. You only do this once.
@@ -57,6 +57,7 @@ Open PhoneBridge on both devices on the same Wi-Fi (a phone hotspot works too). 
 - **Messages, call history and notification history**, searchable from the Mac.
 - **Login codes:** one-time codes from texts go straight to your Mac's clipboard, kept out of clipboard history and wiped after 60 seconds.
 - **Missed-call auto-reply:** the phone can text back *"I'm busy, I'll call you back"* for you.
+- **SMS on Mac switch:** rather keep your texts off the Mac? Turn off one switch on the phone and PhoneBridge stops reading and sending SMS entirely. Calls and everything else keep working.
 
 ### 📁 Files, photos and clipboard
 - **Send files both ways** in one click, or drop files on the menu bar icon.
@@ -97,7 +98,8 @@ PhoneBridge is designed so your data never leaves your own devices.
 - **End-to-end encrypted.** After pairing, everything is encrypted with AES-256-GCM, using keys from an X25519 key agreement. Every connection uses fresh keys, so a stolen long-term key can't decrypt past sessions (forward secrecy).
 - **You verify the pairing.** The matching 6-digit code on both screens protects against anyone connecting in between. After pairing, each device talks only to the other and refuses everything else.
 - **Keys are stored securely:** in the Keychain on the Mac, and sealed with an Android Keystore key on the phone (hardware-backed where available).
-- **Every permission is optional.** Don't want PhoneBridge to read your texts? Leave SMS access off and use everything else.
+- **You decide about your texts.** The **SMS on Mac** switch (phone: **Settings → SMS on Mac**) turns off everything that touches SMS: the Messages tab, sending from the Mac, login codes and the missed-call auto-reply. Android then stops waking PhoneBridge for new texts at all. Only the phone can switch it back on, and it can also take away the SMS permission for you.
+- **Every permission is optional.** Skip any you don't want and use everything else.
 - **Open source and testable.** The protocol is in [`mac/Sources/Crypto.swift`](mac/Sources/Crypto.swift) and [`android/app/src/main/java/app/phonebridge/Crypto.kt`](android/app/src/main/java/app/phonebridge/Crypto.kt), with unit tests that check both sides derive identical keys and codes.
 - **One third-party component:** Scan to Mac uses Google's on-device document scanner from Google Play Services.
 
