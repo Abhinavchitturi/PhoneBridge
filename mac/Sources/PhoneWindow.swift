@@ -127,6 +127,8 @@ final class PhoneStore: ObservableObject {
     }
     @Published var draftQuickReply = ""
     // Missed-call auto-reply (settings live on the phone; this mirrors and edits them)
+    /// The phone's "SMS on Mac" switch. Only the phone can change it.
+    @Published var smsOn = true
     @Published var autoReplyOn = false
     @Published var autoReplyText = ""
     @Published var autoReplyContactsOnly = true
@@ -387,6 +389,11 @@ final class PhoneStore: ObservableObject {
                 let known = Set(photos.map(\.id))
                 photos += page.filter { !known.contains($0.id) }
             }
+        case "sms_state":
+            let on = m["on"] as? Bool ?? true
+            if !on { threads = []; messages = []; selectedThread = nil }
+            else if !smsOn, tab == .messages { send(["t": "sms_threads_request"]) }
+            smsOn = on
         case "autoreply":
             autoReplyOn = m["on"] as? Bool ?? false
             autoReplyText = m["text"] as? String ?? ""

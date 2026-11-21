@@ -65,7 +65,7 @@ object AutoReply {
 
     /** An incoming call ended without being picked up. [hint] is the number from the phone-state broadcast, if any. */
     fun onUnanswered(ctx: Context, hint: String?) {
-        if (!on(ctx)) return
+        if (!on(ctx) || !SmsSwitch.on(ctx)) return
         thread {
             Thread.sleep(2500)
             val logged = latestUnanswered(ctx)

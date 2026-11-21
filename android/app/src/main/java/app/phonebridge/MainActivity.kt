@@ -280,6 +280,7 @@ class MainActivity : Activity() {
         })
         Prefs.get(this).getString("lastError", null)?.let { settingsContent.addView(errorCard(it)) }
         if (Link.isConnected) settingsContent.addView(automationsCard())
+        settingsContent.addView(smsCard())
         settingsContent.addView(setupCard())
         settingsContent.addView(actionsCard())
     }
@@ -542,6 +543,52 @@ class MainActivity : Activity() {
         return card
     }
 
+    /** "SMS on Mac": one switch for everything that touches your texts. */
+    private fun smsCard(): View {
+        val card = card(rounded(c.card))
+        val on = SmsSwitch.on(this)
+        card.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(label("SMS on Mac", 18f, c.text, bold = true))
+                addView(label(
+                    if (on) "On — texts, sending from the Mac, login codes and missed-call auto-reply"
+                    else "Off — PhoneBridge doesn't read or send your texts",
+                    13f, c.muted,
+                ).apply { setPadding(0, dp(2), dp(12), 0) })
+                if (!on) addView(label("Notifications from your messaging app are chosen separately, under Notifications on Mac.",
+                    12f, c.muted).apply { setPadding(0, dp(6), dp(12), 0) })
+            }, weighted())
+            addView(android.widget.Switch(context).apply {
+                val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
+                thumbTintList = android.content.res.ColorStateList(states, intArrayOf(c.onBrand, c.muted))
+                trackTintList = android.content.res.ColorStateList(states, intArrayOf(c.brand, c.line))
+                isChecked = on
+                setOnCheckedChangeListener { _, checked ->
+                    SmsSwitch.set(this@MainActivity, checked)
+                    if (checked && !granted(smsPerms)) requestPermissions(smsPerms, 3)
+                    if (!checked && granted(smsPerms)) offerSmsRevoke()
+                    render()
+                }
+            })
+        })
+        return card
+    }
+
+    /** Switching SMS off stops PhoneBridge using it; this also offers to take the permission away in Android. */
+    private fun offerSmsRevoke() {
+        android.app.AlertDialog.Builder(this)
+            .setTitle("SMS is off")
+            .setMessage("PhoneBridge no longer reads or sends your texts. To also remove its SMS permission, open App info → Permissions → SMS → Don't allow.")
+            .setPositiveButton("Open App info") { _, _ ->
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+            }
+            .setNegativeButton("Not now", null)
+            .show()
+    }
+
     private fun pairingCard(p: Pairing.Pending): View {
         val card = card(rounded(c.card, stroke = c.brand))
         card.addView(label("Pair with ${p.macName}?", 18f, c.text, bold = true))
@@ -578,7 +625,8 @@ class MainActivity : Activity() {
 
     private fun setupCard(): View {
         val callsOk = granted(callPerms)
-        val smsOk = granted(smsPerms)
+        val smsWanted = SmsSwitch.on(this)
+        val smsOk = !smsWanted || granted(smsPerms) // switched off on purpose counts as done
         val notifsOk = granted(notifPerms) && getSystemService(NotificationManager::class.java)
             .isNotificationListenerAccessGranted(ComponentName(this, NotifListener::class.java))
         val bgOk = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
@@ -610,7 +658,7 @@ class MainActivity : Activity() {
         card.addView(setupRow("Calls", "See who's calling, answer or decline on the Mac", callsOk) {
             requestPermissions(callPerms, 2)
         })
-        card.addView(setupRow("SMS", "Messages on your Mac, auto-copy login codes", smsOk) {
+        if (smsWanted) card.addView(setupRow("SMS", "Messages on your Mac, auto-copy login codes", smsOk) {
             requestPermissions(smsPerms, 3)
         })
         card.addView(setupRow("Photos", "See recent photos on your Mac (choose Allow all)", photosOk) {
@@ -655,7 +703,11 @@ class MainActivity : Activity() {
             else requestPermissions(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), 8)
         })
         card.addView(actionRow("Missed-call auto-reply",
-            if (AutoReply.on(this)) "On — texts back when you miss a call" else "Off — text “I'm busy” when you miss a call") {
+            when {
+                !SmsSwitch.on(this) -> "Paused — needs SMS on Mac (Settings above)"
+                AutoReply.on(this) -> "On — texts back when you miss a call"
+                else -> "Off — text “I'm busy” when you miss a call"
+            }) {
             showAutoReply()
         })
         card.addView(actionRow("Send clipboard to Mac", "Copy something, then tap here") {
