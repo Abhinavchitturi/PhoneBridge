@@ -1,0 +1,45 @@
+If you use an Android phone with a Mac, you probably know the problem. iPhone users get their texts, calls and notifications right on their Mac. They copy on one device and paste on the other, and send files in a second. But with Android, the phone and the Mac basically ignore each other. So you keep picking up your phone, emailing files to yourself, and typing login codes by hand.
+
+So I built PhoneBridge. It's a free, open-source app that connects your Android phone to your Mac over your own Wi-Fi. Notifications, messages, calls, files, your clipboard and more, all on your Mac, with no cloud and no account.
+
+A quick note on what you're seeing. The phone screen on the right is my real Android phone, mirrored onto the Mac just for this video, so you can watch both sides at the same time.
+
+Let's see it in action. When I open PhoneBridge, the Mac and the phone start looking for each other on the same Wi-Fi.
+
+They find each other in a few seconds, and both screens show the same six-digit code. I confirm it once, and they're paired. There's no account to sign up for, no cloud, and no PhoneBridge servers. Everything stays between these two devices, and it's encrypted.
+
+Here's the main window on the Mac. I can see my phone's battery, the song that's playing, and a row of one-tap actions. And on the phone there's a matching panel for the Mac. From here I can lock it, put it to sleep, and control its music and volume.
+
+Let's start with files. Sending one is a single click. Here's a picture on my Mac. I hit Send file, pick it, and it's already open on the phone. No cables, no uploading it somewhere first.
+
+It works the other way too. Say I'm browsing on my phone and I find a photo I like. I just share it to PhoneBridge, like I'd share it to any app. And a second later, it's sitting in my Mac's Downloads folder, ready to use.
+
+Now a quick look at settings. The Mac can lock itself when my phone walks away, so if I get up and leave, my laptop locks behind me. I can use my phone as a microphone for the Mac. And any screenshot I take on the Mac can go straight to my phone.
+
+The full window turns my phone into a big-screen app on the Mac. I've got my messages, my photos and videos, and my call history. Some of it is blurred here for privacy, but it's all there, and I can reply without picking up my phone. And if you'd rather not give PhoneBridge access to your texts, you can simply turn that feature off.
+
+This is one of my favourite parts. Here are all the apps on my phone. I click one, and it opens in its own window right on my Mac. I can use it with my mouse and keyboard, just like a Mac app.
+
+Next, the clipboard. This is a history of everything I've copied, on either device, and I can bring any of it back with one click. And this is a shared notepad. Whatever I type on the Mac shows up on the phone as I'm typing. Here I'm writing a quick to-do list: record the PhoneBridge demo, post it on LinkedIn, close the laptop. And it works the other way too. I type a line on my phone, and it's instantly on the Mac.
+
+This is the Device page. It shows my phone's battery and how long until it's charged. From here I can turn on the flashlight, switch on Do Not Disturb, or ring and vibrate the phone if I can't find it. It even shows where the phone is on a map, and one click opens that location in Maps.
+
+From the Mac, I can also browse every photo and video on the phone. And here's my notification history. Every notification my phone has had, in one place, and I can search it.
+
+Here's something I use all the time. Say I'm watching a video on my Mac and I need to head out. On the phone, I tap Mac's tab, and the exact page I was on opens right on my phone. It works with YouTube, LinkedIn, and any other page, like the PhoneBridge page on GitHub.
+
+The clipboard is shared, so copy and paste just works across both devices. I select a headline on my phone and copy it. Then on the Mac, I paste it straight into Notes. Images work the same way. I share this one from my phone, and it opens on the Mac.
+
+And from Mac to phone: I select some text in Safari, copy it, and paste it on my phone. No emailing myself, no messaging myself, no cables.
+
+If music is playing on the Mac, the phone becomes the remote. I can see what's playing, pause it, skip it, and change the volume, all from the phone.
+
+My phone can also be a trackpad for the Mac. One finger moves the cursor, a tap is a click, and two fingers scroll. It's handy when I'm across the room, or when the laptop is plugged into a bigger screen.
+
+And it can be a keyboard too. I switch to the keyboard tab and start typing on my phone, and every word shows up in Notes on the Mac. Emoji included.
+
+I can also run any of my Mac shortcuts from the phone. And if I've lost my Mac somewhere around the house, Find Mac plays a sound on it until I find it.
+
+And this one's my favourite: Scan to Mac. I point my phone's camera at my handwritten notes. I can crop the page and add a filter to clean it up. Then I tap Next, and the scan is waiting for me on my Mac, ready to save or share.
+
+That's PhoneBridge. Your Android phone, built right into your Mac. Notifications, messages, files, clipboard, and more, all private and all between your own two devices. It's free and open source, and the link is below. Thanks for watching.
