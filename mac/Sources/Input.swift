@@ -65,6 +65,9 @@ final class InputControl {
             if let name = (m["key"] as? String)?.lowercased(), let code = Self.keyCodes[name] {
                 press(code, flags: CGEventFlags(mods))
             }
+        case "mod":
+            // A modifier held down on the phone's keyboard (⌘ held while tapping Tab, like a real keyboard).
+            if let name = m["key"] as? String { setModifier(name, down: m["down"] as? Bool ?? false) }
         case "gesture":
             gesture(m["dir"] as? String ?? "")
         case "zoom":
@@ -102,6 +105,34 @@ final class InputControl {
         CGEvent(mouseEventSource: nil, mouseType: up, mouseCursorPosition: p, mouseButton: button)?.post(tap: .cghidEventTap)
     }
 
+    // MARK: Held modifiers
+
+    private static let modifierKeys: [String: CGKeyCode] = ["cmd": 55, "shift": 56, "opt": 58, "ctrl": 59]
+    /// Modifiers the phone is holding down right now; added to every key pressed meanwhile.
+    nonisolated(unsafe) private static var held: [String: CGEventFlags] = [:]
+    nonisolated(unsafe) private static var heldFlags: CGEventFlags = []
+    private var releaseTimer: Timer?
+
+    private func setModifier(_ name: String, down: Bool) {
+        guard let code = Self.modifierKeys[name], let flag = Self.modifierFlags[name] else { return }
+        if down { Self.held[name] = flag } else if Self.held.removeValue(forKey: name) == nil { return }
+        Self.heldFlags = Self.held.values.reduce(CGEventFlags()) { $0.union($1) }
+        let e = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down)
+        e?.type = .flagsChanged
+        e?.flags = Self.heldFlags
+        e?.post(tap: .cghidEventTap)
+        // Never leave a modifier stuck down if the phone goes quiet (screen off, Wi-Fi drop).
+        releaseTimer?.invalidate()
+        releaseTimer = Self.held.isEmpty ? nil : Timer.scheduledTimer(withTimeInterval: 30, repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.releaseModifiers() }
+        }
+    }
+
+    /// Lets go of anything the phone is holding (called on disconnect and by the safety timer).
+    func releaseModifiers() {
+        for name in Array(Self.held.keys) { setModifier(name, down: false) }
+    }
+
     private func type(_ text: String) {
         // Unicode key events carry up to ~20 UTF-16 units each.
         var units = Array(text.utf16)
@@ -120,7 +151,7 @@ final class InputControl {
 
     /// Presses one key (with modifiers) in the Mac's front app. Needs Accessibility, like the rest of this class.
     static func press(_ code: CGKeyCode, flags: CGEventFlags = []) {
-        var flags = flags
+        var flags = flags.union(heldFlags)
         // Arrow and navigation keys carry the fn flag on a real keyboard; Mission Control's ⌃-arrow shortcuts expect it.
         if (115...126).contains(code) && !flags.isEmpty { flags.insert(.maskSecondaryFn) }
         for down in [true, false] {

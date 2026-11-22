@@ -112,6 +112,7 @@ class RemoteActivity : Activity() {
     }
 
     private fun show(i: Int) {
+        releaseHeld()
         if (i != 1 && requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) vertical()
         mode = i
         tabs.forEachIndexed { j, t ->
@@ -307,6 +308,9 @@ class RemoteActivity : Activity() {
 
     /** Modifiers waiting for the next key (tap once), cleared after it. */
     private val mods = linkedSetOf<String>()
+    /** Modifiers a finger is holding down right now (held on the Mac too, like a real keyboard). */
+    private val held = linkedMapOf<String, Boolean>()   // name → used for a key while held
+    private val active get() = (mods + held.keys).toList()
     private val modViews = HashMap<String, MutableList<TextView>>()
     private val charViews = mutableListOf<Pair<TextView, String>>()
 
@@ -317,15 +321,17 @@ class RemoteActivity : Activity() {
     )
 
     private fun fullKeyboard(): View {
+        releaseHeld()
         mods.clear(); modViews.clear(); charViews.clear()
-        // A key: label, what it does, and its width relative to a letter key.
-        class K(val label: String, val weight: Float = 1f, val action: () -> Unit)
+        // A key: label, what it does, its width relative to a letter key, a modifier name, and whether holding repeats it.
+        class K(val label: String, val weight: Float = 1f, val mod: String? = null, val repeats: Boolean = false, val action: () -> Unit)
         fun ch(c: String) = K(c) { typeChar(c) }
-        fun sp(label: String, name: String, w: Float) = K(label, w) { pressSpecial(name) }
-        fun mod(label: String, name: String, w: Float) = K(label, w) { toggleMod(name) }
+        fun sp(label: String, name: String, w: Float) =
+            K(label, w, repeats = name in setOf("backspace", "left", "right", "up", "down")) { pressSpecial(name) }
+        fun mod(label: String, name: String, w: Float) = K(label, w, mod = name) { }
         val rows = listOf(
             listOf(sp("esc", "esc", 1.3f)) + "`1234567890-=".map { ch(it.toString()) } + sp("⌫", "backspace", 1.7f),
-            listOf(sp("tab", "tab", 1.6f)) + "qwertyuiop[]".map { ch(it.toString()) } + ch("\\").let { K(it.label, 1.4f, it.action) },
+            listOf(sp("tab", "tab", 1.6f)) + "qwertyuiop[]".map { ch(it.toString()) } + ch("\\").let { K(it.label, 1.4f, action = it.action) },
             listOf(mod("control", "ctrl", 1.9f)) + "asdfghjkl;'".map { ch(it.toString()) } + sp("return", "return", 2.1f),
             listOf(mod("shift", "shift", 2.4f)) + "zxcvbnm,./".map { ch(it.toString()) } + sp("↑", "up", 1f) + mod("shift", "shift", 1.6f),
             listOf(
@@ -345,7 +351,11 @@ class RemoteActivity : Activity() {
                         background = rounded(chip, 8)
                         isClickable = true
                         maxLines = 1
-                        setOnClickListener { performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); k.action() }
+                        when {
+                            k.mod != null -> modifierTouch(this, k.mod)
+                            k.repeats -> repeatTouch(this, k.action)
+                            else -> setOnClickListener { performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); k.action() }
+                        }
                     }
                     if (k.label.length == 1 && k.label !in setOf("↑", "↓", "←", "→")) charViews += v to k.label
                     rowMods(k.label)?.let { modViews.getOrPut(it) { mutableListOf() } += v }
@@ -366,36 +376,104 @@ class RemoteActivity : Activity() {
         refreshKeys()
     }
 
+    /**
+     * A modifier key works like a real one: while a finger holds it, it's held on the Mac too, so ⌘ held + Tab, Tab, Tab
+     * walks the app switcher and letting go of ⌘ opens the app. Tapped on its own, it applies to the next key instead.
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun modifierTouch(v: View, name: String) {
+        var downAt = 0L
+        v.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downAt = SystemClock.uptimeMillis()
+                    v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    if (name !in held) {
+                        held[name] = false
+                        Link.send("input", "kind" to "mod", "key" to name, "down" to true)
+                    }
+                    refreshKeys()
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val used = held.remove(name) ?: return@setOnTouchListener true
+                    Link.send("input", "kind" to "mod", "key" to name, "down" to false)
+                    // A quick tap with no other key: keep it for the next key, as before.
+                    if (!used && e.actionMasked == MotionEvent.ACTION_UP && SystemClock.uptimeMillis() - downAt < 400) toggleMod(name)
+                    refreshKeys()
+                }
+            }
+            true
+        }
+    }
+
+    /** ⌫ and the arrows repeat while held, like a real keyboard. */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun repeatTouch(v: View, action: () -> Unit) {
+        val repeat = object : Runnable {
+            override fun run() { action(); main.postDelayed(this, 60) }
+        }
+        v.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    v.isPressed = true
+                    v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    action()
+                    main.postDelayed(repeat, 450)
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { v.isPressed = false; main.removeCallbacks(repeat) }
+            }
+            true
+        }
+    }
+
+    /** Lets go of every held modifier (leaving the keyboard, or the screen). */
+    private fun releaseHeld() {
+        held.keys.toList().forEach { Link.send("input", "kind" to "mod", "key" to it, "down" to false) }
+        held.clear()
+    }
+
+    override fun onPause() {
+        releaseHeld()
+        super.onPause()
+    }
+
     /** Highlights held modifiers and shows ⇧ characters while shift is on. */
     private fun refreshKeys() {
         modViews.forEach { (name, views) ->
             views.forEach { v ->
-                val on = name in mods
+                val on = name in mods || name in held
                 v.background = rounded(if (on) brand else chip, 8)
                 v.setTextColor(if (on) onBrand else text)
             }
         }
-        val shift = "shift" in mods
+        val shift = "shift" in mods || "shift" in held
         charViews.forEach { (v, c) ->
             v.text = if (!shift) c else if (c[0].isLetter()) c.uppercase() else shifted[c] ?: c
         }
     }
 
     private fun typeChar(c: String) {
-        val held = mods.toList()
-        if (held.any { it != "shift" }) {
+        val on = active
+        if (on.any { it != "shift" }) {
             // A shortcut such as ⌘C or ⌃⌥←: send the key with its modifiers.
-            Link.send("input", "kind" to "key", "key" to c, "mods" to org.json.JSONArray(held))
+            Link.send("input", "kind" to "key", "key" to c, "mods" to org.json.JSONArray(on))
         } else {
-            val out = if ("shift" !in mods) c else if (c[0].isLetter()) c.uppercase() else shifted[c] ?: c
+            val out = if ("shift" !in on) c else if (c[0].isLetter()) c.uppercase() else shifted[c] ?: c
             Link.send("input", "kind" to "type", "text" to out)
         }
-        if (mods.isNotEmpty()) { mods.clear(); refreshKeys() }
+        keyDone()
     }
 
     private fun pressSpecial(name: String) {
-        if (name == "space" && mods.isEmpty()) Link.send("input", "kind" to "type", "text" to " ")
-        else Link.send("input", "kind" to "key", "key" to name, "mods" to org.json.JSONArray(mods.toList()))
+        val on = active
+        if (name == "space" && on.isEmpty()) Link.send("input", "kind" to "type", "text" to " ")
+        else Link.send("input", "kind" to "key", "key" to name, "mods" to org.json.JSONArray(on))
+        keyDone()
+    }
+
+    /** After a key: held modifiers count as used (so letting go doesn't latch them); tapped ones are spent. */
+    private fun keyDone() {
+        held.keys.forEach { held[it] = true }
         if (mods.isNotEmpty()) { mods.clear(); refreshKeys() }
     }
 

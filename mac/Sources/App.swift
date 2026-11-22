@@ -411,6 +411,7 @@ final class Bridge: ObservableObject {
         switch state {
         case .searching:
             connected = false
+            input.releaseModifiers()   // a phone that dropped mid-⌘-hold mustn't leave ⌘ stuck
             phoneRinging = false
             nowPlaying = nil
             callPanel.hide()
