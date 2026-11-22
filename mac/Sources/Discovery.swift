@@ -21,9 +21,9 @@ struct DiscoveryView: View {
                 .multilineTextAlignment(.center).lineSpacing(2)
                 .padding(.horizontal, 24)
             OrbView(theme: t).frame(width: 330, height: 330).padding(.vertical, 6)
-            Text(bridge.foundPhone == nil
-                 ? "Open PhoneBridge on your phone. Both need to be on the same Wi-Fi."
-                 : "Check that the 6-digit code on your phone matches the one shown here, then tap Pair on both.")
+            Text(bridge.foundPhone != nil
+                 ? "Check that the 6-digit code on your phone matches the one shown here, then tap Pair on both."
+                 : bridge.phoneNote ?? "Open PhoneBridge on your phone. Both need to be on the same Wi-Fi.")
                 .font(.system(size: 14)).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 .frame(maxWidth: 340).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 24)

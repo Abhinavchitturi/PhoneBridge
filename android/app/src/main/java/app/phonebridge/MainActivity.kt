@@ -252,6 +252,7 @@ class MainActivity : Activity() {
     // MARK: Screen
 
     private fun render() {
+        computersDialogBox?.let { fillComputers(it) }
         if (tab == Tab.SETTINGS) { renderSettings(); return }
         if (tab != Tab.HOME) return // the notes tab updates itself
         val connected = Link.isConnected
@@ -278,6 +279,8 @@ class MainActivity : Activity() {
     private fun renderSettings() {
         settingsContent.removeAllViews()
         settingsContent.addView(label("Settings", 30f, c.text).apply { typeface = Typeface.SERIF; setPadding(0, dp(8), 0, dp(14)) })
+        settingsContent.addView(sectionTitle("Computers"))
+        settingsContent.addView(card(rounded(c.card)).apply { fillComputers(this) })
         settingsContent.addView(sectionTitle("Theme"))
         settingsContent.addView(ThemeSettingsView(this, { recreate() }, showHeader = false).apply {
             layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) }
@@ -337,19 +340,44 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(18), dp(28), dp(18), dp(10))
             val found = Pairing.pending != null
-            addView(label(if (found) "Found\nyour Mac" else "Looking for\nyour Mac", 34f, c.text).apply {
+            val wanted = Computers.get(context, Link.wanted)
+            val paired = !Computers.isEmpty(context)
+            val headline = when {
+                found -> "Found\n${Pairing.pending?.macName ?: "a computer"}"
+                Link.pairingNew -> "Pair a new\ncomputer"
+                wanted != null -> "Looking for\n${wanted.title}"
+                else -> "Looking for\nyour computer"
+            }
+            addView(label(headline, 34f, c.text).apply {
                 gravity = Gravity.CENTER
                 typeface = Typeface.SERIF
                 setLineSpacing(0f, 1.05f)
             })
             addView(OrbView(context, ThemeStore.get(context)), LinearLayout.LayoutParams(-1, 0, 1f))
-            addView(label(
-                if (found) "Check that the 6-digit code matches the one on your Mac, then tap Pair on both."
-                else "Open PhoneBridge on your Mac. Both need to be on the same Wi-Fi.", 14f, c.muted,
-            ).apply { gravity = Gravity.CENTER; setPadding(dp(24), 0, dp(24), dp(18)) })
-            addView(label("Having trouble finding your Mac?", 13f, c.muted).apply { gravity = Gravity.CENTER; setPadding(0, 0, 0, dp(10)) })
-            addView(pill("Wi-Fi settings", filled = false) { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) }
-                .apply { (layoutParams as LinearLayout.LayoutParams).gravity = Gravity.CENTER_HORIZONTAL })
+            val help = when {
+                found -> "Check that the 6-digit code matches the one on your computer, then tap Pair on both."
+                Link.pairingNew -> "Open PhoneBridge on the computer you want to add. Both need to be on the same Wi-Fi."
+                wanted != null && Link.notFound == wanted.id ->
+                    "Couldn't find “${wanted.title}” on this network. Make sure PhoneBridge is open on it and both are on the same Wi-Fi — or pick another computer."
+                Link.status.startsWith("Blocked") -> Link.status
+                else -> "Open PhoneBridge on your computer. Both need to be on the same Wi-Fi."
+            }
+            addView(label(help, 14f, c.muted).apply { gravity = Gravity.CENTER; setPadding(dp(24), 0, dp(24), dp(18)) })
+            if (!found) {
+                addView(label("Having trouble finding your computer?", 13f, c.muted).apply { gravity = Gravity.CENTER; setPadding(0, 0, 0, dp(10)) })
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    if (Link.pairingNew && paired) {
+                        addView(pill("Cancel pairing", filled = false) { Link.stopPairingNew(); render() })
+                        addView(space(dp(10)))
+                    } else if (paired) {
+                        addView(pill("Computers", filled = false) { showComputers() })
+                        addView(space(dp(10)))
+                    }
+                    addView(pill("Wi-Fi settings", filled = false) { startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) })
+                }, LinearLayout.LayoutParams(-1, -2))
+            }
         }, FrameLayout.LayoutParams(-1, -1))
     }
 
@@ -363,13 +391,18 @@ class MainActivity : Activity() {
             addView(GlyphView(context, ThemeStore.get(context), c.brand), FrameLayout.LayoutParams(dp(34), dp(34), Gravity.CENTER))
         }, LinearLayout.LayoutParams(dp(68), dp(68)))
         addView(label("PhoneBridge", 28f, c.text).apply { typeface = Typeface.SERIF; gravity = Gravity.CENTER; setPadding(0, dp(12), 0, dp(2)) })
-        addView(label(if (Link.isConnected) "Connected" else "Not connected", 13f, if (Link.isConnected) c.green else c.muted).apply { gravity = Gravity.CENTER })
+        addView(label(if (Link.isConnected) "Connected to ${Link.computerName}  ›" else "Not connected", 13f, if (Link.isConnected) c.green else c.muted).apply {
+            gravity = Gravity.CENTER
+            if (Link.isConnected) { isClickable = true; setOnClickListener { showComputers() } }
+        })
     }
 
-    /** The animated scene for the chosen theme, with the Mac's name over it. */
+    /** The animated scene for the chosen theme, with the connected computer's name over it. Tap to switch computers. */
     private fun heroCard(): View = FrameLayout(this).apply {
         background = GradientDrawable().apply { cornerRadius = dp(24).toFloat(); setColor(c.card) }
         clipToOutline = true
+        isClickable = true
+        setOnClickListener { showComputers() }
         layoutParams = LinearLayout.LayoutParams(-1, dp(200)).apply { bottomMargin = dp(16) }
         addView(HeroView(context, ThemeStore.get(context)), FrameLayout.LayoutParams(-1, -1))
         addView(View(context).apply { background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0, 0x99000000.toInt())) },
@@ -377,9 +410,10 @@ class MainActivity : Activity() {
         addView(LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), 0, dp(18), dp(16))
-            addView(label(Link.status.removePrefix("Connected to "), 22f, 0xFFFFFFFF.toInt()).apply { typeface = Typeface.SERIF; maxLines = 1 })
+            addView(label("${Link.computerName}  ›", 22f, 0xFFFFFFFF.toInt()).apply { typeface = Typeface.SERIF; maxLines = 1 })
             val sub = buildString {
                 append("Notifications, calls, clipboard and files are synced")
+                if (Computers.all(context).size > 1) append(" · tap to switch")
                 MacRemote.battery?.let { append(" · Mac $it%") }
             }
             addView(label(sub, 12f, 0xB3FFFFFF.toInt()))
@@ -645,7 +679,7 @@ class MainActivity : Activity() {
     private fun pairingCard(p: Pairing.Pending): View {
         val card = card(rounded(c.card, stroke = c.brand))
         card.addView(label("Pair with ${p.macName}?", 18f, c.text, bold = true))
-        card.addView(label("Check your Mac shows the same code", 14f, c.muted).apply { setPadding(0, dp(4), 0, dp(12)) })
+        card.addView(label("Check your computer shows the same code", 14f, c.muted).apply { setPadding(0, dp(4), 0, dp(12)) })
         card.addView(label(p.code.chunked(3).joinToString(" "), 40f, c.text, bold = true).apply {
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             letterSpacing = 0.15f
@@ -778,12 +812,126 @@ class MainActivity : Activity() {
                 startActivity(Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA, Uri.parse("package:$packageName")))
             })
         }
-        card.addView(actionRow("Forget this Mac", "You'll need to pair again", danger = true) {
-            Link.forget()
-            toast("Forgot your Mac")
-            render()
-        })
         return card
+    }
+
+    // MARK: Computers
+
+    /** The open "Computers" dialog's list, refreshed whenever the link changes. */
+    private var computersDialogBox: LinearLayout? = null
+
+    /** The paired computers, each with Connect / Rename / Forget, and "Pair a new computer" at the end. */
+    private fun fillComputers(box: LinearLayout) {
+        box.removeAllViews()
+        val list = Computers.all(this)
+        if (list.isEmpty()) {
+            box.addView(label("No computers paired yet", 16f, c.text, bold = true))
+            box.addView(label("Open PhoneBridge on your computer — it finds this phone and shows a 6-digit code.", 13f, c.muted))
+        }
+        val connected = Link.connectedId
+        list.forEachIndexed { i, comp ->
+            if (i > 0) box.addView(View(this).apply { setBackgroundColor(c.line) }, LinearLayout.LayoutParams(-1, dp(1)).apply { topMargin = dp(12); bottomMargin = dp(12) })
+            val isOn = comp.id == connected
+            val (state, color) = when {
+                isOn -> "Connected" to c.green
+                Link.notFound == comp.id -> "Not found on this network" to c.orange
+                Link.wanted == comp.id -> "Looking for it…" to c.brand
+                Link.isNearby(comp.id) -> "Nearby" to c.text
+                comp.lastSeen > 0 -> "Last connected ${ago(comp.lastSeen)}" to c.muted
+                else -> "Not connected" to c.muted
+            }
+            box.addView(label(comp.title, 17f, c.text, bold = true).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+            if (comp.label != null && comp.label != comp.name) box.addView(label(comp.name, 12f, c.muted))
+            box.addView(label(state, 13f, color).apply { setPadding(0, dp(2), 0, dp(10)) })
+            box.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                if (!isOn) {
+                    addView(pill(if (Link.wanted == comp.id) "Connecting…" else "Connect", filled = true, compact = true) {
+                        Link.connectTo(comp.id)
+                        toast("Switching to ${comp.title}…")
+                        render()
+                    })
+                    addView(space(dp(8)))
+                }
+                addView(pill("Rename", filled = false, compact = true) { renameComputer(comp) })
+                addView(space(dp(8)))
+                addView(pill("Forget", filled = false, compact = true) { forgetComputer(comp) }.apply { setTextColor(c.red) })
+            })
+        }
+        if (list.isNotEmpty()) box.addView(View(this).apply { setBackgroundColor(c.line) }, LinearLayout.LayoutParams(-1, dp(1)).apply { topMargin = dp(12) })
+        box.addView(actionRow(
+            if (Link.pairingNew) "Waiting for a new computer…" else "Pair a new computer",
+            if (Link.pairingNew) "Open PhoneBridge on it · tap to cancel" else "Add another Mac or PC — your other computers stay paired",
+        ) {
+            if (Link.pairingNew) { Link.stopPairingNew(); render(); return@actionRow }
+            if (Link.isConnected) {
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("Pair a new computer?")
+                    .setMessage("You'll be disconnected from ${Link.computerName} while you pair. It stays in your list.")
+                    .setPositiveButton("Continue") { _, _ -> beginPairingNew() }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            } else beginPairingNew()
+        })
+    }
+
+    private fun beginPairingNew() {
+        Link.startPairingNew()
+        computersDialog?.dismiss()
+        showTab(Tab.HOME)
+    }
+
+    private var computersDialog: android.app.AlertDialog? = null
+
+    /** The same list as in Settings, opened from Home (tap the connected computer's name). */
+    private fun showComputers() {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(22), dp(8), dp(22), dp(8)) }
+        computersDialogBox = box
+        fillComputers(box)
+        computersDialog = android.app.AlertDialog.Builder(this)
+            .setTitle("Computers")
+            .setView(ScrollView(this).apply { addView(box) })
+            .setPositiveButton("Done", null)
+            .setOnDismissListener { computersDialogBox = null; computersDialog = null }
+            .show()
+    }
+
+    private fun renameComputer(comp: Computers.Computer) {
+        val field = android.widget.EditText(this).apply { setText(comp.title); setSelectAllOnFocus(true); hint = comp.name }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Rename computer")
+            .setView(FrameLayout(this).apply { setPadding(dp(22), dp(8), dp(22), 0); addView(field) })
+            .setPositiveButton("Save") { _, _ ->
+                Computers.rename(this, comp.id, field.text.toString().takeIf { it.trim() != comp.name })
+                if (Link.connectedId == comp.id) Link.setConnectedName()
+                render()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun forgetComputer(comp: Computers.Computer) {
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Forget ${comp.title}?")
+            .setMessage("This phone stops connecting to it. To use it again you'll need to pair again.")
+            .setPositiveButton("Forget") { _, _ ->
+                Link.forget(comp.id)
+                toast("Forgot ${comp.title}")
+                render()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun ago(t: Long): String {
+        val m = (System.currentTimeMillis() - t) / 60_000
+        return when {
+            m < 1 -> "just now"
+            m < 60 -> "$m min ago"
+            m < 60 * 24 -> "${m / 60} h ago"
+            m < 60 * 24 * 2 -> "yesterday"
+            else -> "${m / (60 * 24)} days ago"
+        }
     }
 
     // MARK: Building blocks

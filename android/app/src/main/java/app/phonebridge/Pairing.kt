@@ -7,7 +7,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 
-/** Shows "does this code match your Mac?" on the phone; both sides must confirm. */
+/** Shows "does this code match your computer?" on the phone; both sides must confirm. */
 object Pairing {
     private const val NOTIF_ID = 2
     private const val ACTION_CONFIRM = "app.phonebridge.PAIR_CONFIRM"
@@ -31,8 +31,8 @@ object Pairing {
         val n = Notification.Builder(ctx, Channels.PAIR)
             .setSmallIcon(R.drawable.ic_stat_bridge)
             .setContentTitle("Pair with $macName?")
-            .setContentText("Check your Mac shows the same code: $code")
-            .setStyle(Notification.BigTextStyle().bigText("Check your Mac shows the same code:\n$code"))
+            .setContentText("Check your computer shows the same code: $code")
+            .setStyle(Notification.BigTextStyle().bigText("Check your computer shows the same code:\n$code"))
             .setContentIntent(
                 PendingIntent.getActivity(ctx, 0, Intent(ctx, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
             )
