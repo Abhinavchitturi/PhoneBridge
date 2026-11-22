@@ -9,6 +9,12 @@ set -e
 cd "$(dirname "$0")"
 ROOT=$PWD
 
+# Both apps update themselves from the latest GitHub release by comparing version numbers,
+# so the Mac and Android versions must match the release tag (v<version>).
+MAC_V=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" mac/Info.plist)
+APK_V=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' android/app/build.gradle.kts)
+[[ "$MAC_V" == "$APK_V" ]] || { echo "Version mismatch: mac/Info.plist is $MAC_V, android versionName is $APK_V"; exit 1; }
+
 echo "▸ Mac app and disk image"
 ./mac/make-dmg.sh
 

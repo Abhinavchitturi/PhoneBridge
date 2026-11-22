@@ -215,6 +215,8 @@ class MainActivity : Activity() {
         ThemeStore.onRemoteChange = { recreate() }
         ThemeStore.push(this)   // keep the Mac on the same theme
         Link.listeners.add(refresh)
+        Updater.clearUpdatedNotice(this)
+        Updater.check(this)
         when (tab) {
             Tab.HOME -> render()
             Tab.NOTES -> notesView.start()
@@ -261,10 +263,12 @@ class MainActivity : Activity() {
             content.setPadding(0, 0, 0, 0)
             content.addView(searchingView(), LinearLayout.LayoutParams(-1, 0, 1f))
             Pairing.pending?.let { content.addView(pairingCard(it).apply { (layoutParams as LinearLayout.LayoutParams).setMargins(dp(18), 0, dp(18), dp(14)) }) }
+            Updater.available?.let { content.addView(updateCard(it).apply { (layoutParams as LinearLayout.LayoutParams).setMargins(dp(18), 0, dp(18), dp(14)) }) }
             return
         }
         content.setPadding(dp(18), dp(12), dp(18), dp(24))
         content.addView(brandHeader())
+        Updater.available?.let { content.addView(updateCard(it)) }
         content.addView(heroCard())
         Pairing.pending?.let { content.addView(pairingCard(it)) }
         content.addView(macCard())
@@ -283,6 +287,45 @@ class MainActivity : Activity() {
         settingsContent.addView(smsCard())
         settingsContent.addView(setupCard())
         settingsContent.addView(actionsCard())
+        settingsContent.addView(aboutCard())
+    }
+
+    /** "A new version is available": one tap downloads it, installs it and PhoneBridge reopens. */
+    private fun updateCard(r: Updater.Release): View {
+        val card = card(rounded(c.card, stroke = c.brand))
+        card.addView(label("UPDATE AVAILABLE", 11f, c.brand, bold = true).apply { letterSpacing = 0.12f })
+        card.addView(label("PhoneBridge ${r.version} is ready", 18f, c.text, bold = true).apply { setPadding(0, dp(4), 0, dp(2)) })
+        val notes = Updater.shortNotes(r.notes)
+        card.addView(label(if (notes.isNotEmpty()) notes else "You have ${Updater.current(this)}. Update your app to get the latest fixes and features.", 13f, c.muted).apply {
+            maxLines = 4
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        })
+        val busy = Updater.progress
+        card.addView(pill(busy ?: "Update now", filled = busy == null) { Updater.install(this) }.apply {
+            isEnabled = busy == null
+            (layoutParams as LinearLayout.LayoutParams).topMargin = dp(12)
+        })
+        return card
+    }
+
+    private fun aboutCard(): View {
+        val card = card(rounded(c.card))
+        card.addView(label("About", 18f, c.text, bold = true).apply { setPadding(0, 0, 0, dp(6)) })
+        val r = Updater.available
+        card.addView(actionRow(
+            if (r != null) "Update to ${r.version}" else "Check for updates",
+            "PhoneBridge ${Updater.current(this)}" + if (r != null) " · a new version is ready" else "",
+        ) {
+            if (Updater.available != null) { Updater.install(this); return@actionRow }
+            toast("Checking for updates…")
+            Updater.check(this, force = true) { found ->
+                runOnUiThread {
+                    toast(if (found) "PhoneBridge ${Updater.available?.version} is available" else "You're on the latest version")
+                    renderSettings()
+                }
+            }
+        })
+        return card
     }
 
     private fun sectionTitle(text: String) = label(text.uppercase(), 11f, c.muted, bold = true).apply { setPadding(dp(4), dp(6), 0, dp(10)); letterSpacing = 0.12f }
@@ -358,6 +401,21 @@ class MainActivity : Activity() {
             if (MacRemote.finding) Triple(LineIcon.STOP, "Stop sound") { MacRemote.command("find_stop") }
             else Triple(LineIcon.PIN, "Find Mac") { MacRemote.command("find"); toast("Playing a sound on your Mac — tap again to stop") },
         ))
+        // Controls for what's in front on the Mac: a video gets ±10 s, Esc and Full screen.
+        if (MacRemote.front == "video") {
+            card.addView(label("VIDEO ON YOUR MAC", 11f, c.muted, bold = true).apply { letterSpacing = 0.12f; setPadding(dp(2), dp(14), 0, 0) })
+            card.addView(tileRow(
+                Triple(LineIcon.BACK10, "−10 s") { MacRemote.command("video", "action" to "skip", "value" to -10) },
+                Triple(LineIcon.FWD10, "+10 s") { MacRemote.command("video", "action" to "skip", "value" to 10) },
+                Triple(LineIcon.ESC, "Esc") { MacRemote.command("video", "action" to "esc") },
+            ))
+            card.addView(tileRow(
+                Triple(LineIcon.FULLSCREEN, "Full screen") { MacRemote.command("video", "action" to "fullscreen") },
+                if (MacRemote.nowPlaying?.playing == true) Triple(LineIcon.PAUSE, "Pause") { MacRemote.command("play_pause") }
+                else Triple(LineIcon.PLAY, "Play") { MacRemote.command("play_pause") },
+                Triple(LineIcon.MOUSE, "Trackpad") { startActivity(Intent(this, RemoteActivity::class.java)) },
+            ))
+        }
         MacRemote.nowPlaying?.let { card.addView(macNowPlaying(it)) }
         val playing = MacRemote.nowPlaying?.playing
         card.addView(tileRow(

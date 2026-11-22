@@ -23,6 +23,9 @@ object MacRemote {
         private set
     @Volatile var nowPlaying: MacTrack? = null
         private set
+    /** What's in front on the Mac, when the phone has special controls for it ("video"). */
+    @Volatile var front: String? = null
+        private set
 
     fun onState(m: JSONObject) {
         battery = if (m.has("battery")) m.getInt("battery") else null
@@ -30,6 +33,7 @@ object MacRemote {
         volume = if (m.has("volume")) m.getInt("volume") else null
         muted = m.optBoolean("muted")
         finding = m.optBoolean("finding")
+        front = m.optString("front").ifEmpty { null }
         Link.changed()
     }
 

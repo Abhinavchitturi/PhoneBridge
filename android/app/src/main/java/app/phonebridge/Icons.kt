@@ -8,7 +8,7 @@ import android.graphics.RectF
 import android.view.View
 
 /** The small line icons used on the home screen, drawn on a 24-unit grid so they stay crisp and match the theme colour. */
-enum class LineIcon { LOCK, MOON, PIN, PREV, NEXT, PLAY, PAUSE, STOP, MIC, SCAN, KEYBOARD, MOUSE, GLOBE, CLIPBOARD, VOL_DOWN, VOL_UP, MUTE }
+enum class LineIcon { LOCK, MOON, PIN, PREV, NEXT, PLAY, PAUSE, STOP, MIC, SCAN, KEYBOARD, MOUSE, GLOBE, CLIPBOARD, VOL_DOWN, VOL_UP, MUTE, BACK10, FWD10, ESC, FULLSCREEN }
 
 class IconView(ctx: Context, var icon: LineIcon, var tint: Int) : View(ctx) {
     override fun onDraw(c: Canvas) {
@@ -90,6 +90,32 @@ class IconView(ctx: Context, var icon: LineIcon, var tint: Int) : View(ctx) {
                 c.drawArc(RectF(8f, 5f, 20f, 19f), -45f, 90f, false, p)
             }
             LineIcon.MUTE -> { speaker(); line(16f, 9.5f, 21f, 14.5f); line(21f, 9.5f, 16f, 14.5f) }
+            LineIcon.BACK10, LineIcon.FWD10 -> {
+                // a circular arrow with "10" inside, mirrored for back
+                val back = icon == LineIcon.BACK10
+                c.save()
+                if (back) c.scale(-1f, 1f, 12f, 12f)
+                c.drawArc(RectF(4f, 4f, 20f, 20f), -60f, 300f, false, p)
+                c.drawPath(Path().apply { moveTo(16f, 2.5f); lineTo(16.5f, 6.5f); lineTo(12.6f, 7.3f) }, p)
+                c.restore()
+                val t = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = tint; textSize = 7f; textAlign = Paint.Align.CENTER; isFakeBoldText = true
+                }
+                c.drawText("10", 12f, 14.6f, t)
+            }
+            LineIcon.ESC -> {
+                rr(3f, 6f, 21f, 18f, 3f)
+                val t = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = tint; textSize = 6.5f; textAlign = Paint.Align.CENTER; isFakeBoldText = true
+                }
+                c.drawText("esc", 12f, 14.3f, t)
+            }
+            LineIcon.FULLSCREEN -> c.drawPath(Path().apply {
+                moveTo(4f, 9f); lineTo(4f, 4f); lineTo(9f, 4f)
+                moveTo(15f, 4f); lineTo(20f, 4f); lineTo(20f, 9f)
+                moveTo(4f, 15f); lineTo(4f, 20f); lineTo(9f, 20f)
+                moveTo(20f, 15f); lineTo(20f, 20f); lineTo(15f, 20f)
+            }, p)
         }
         c.restore()
     }

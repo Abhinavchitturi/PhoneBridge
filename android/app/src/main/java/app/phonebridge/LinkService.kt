@@ -184,5 +184,8 @@ object Battery {
 }
 
 class BootReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) = LinkService.start(context)
+    override fun onReceive(context: Context, intent: Intent) {
+        LinkService.start(context)
+        if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) Updater.afterUpdate(context)
+    }
 }

@@ -14,6 +14,8 @@ final class MacControl: ObservableObject {
     var onCall: (Bool) -> Void = { _ in }
     /// The phone's player screen: opened / left / a control pressed ("action" + "value").
     var deck: (_ cmd: String, _ action: String?, _ value: Any?) -> Void = { _, _, _ in }
+    /// The app the Mac's now-playing media comes from, if anything is playing or paused.
+    var nowPlayingApp: () -> String? = { nil }
     private var lastState: [String: AnyHashable] = [:]
     private var mutedForCall = false
     private var lowAlerted = false
@@ -21,6 +23,10 @@ final class MacControl: ObservableObject {
     private var timer: Timer?
 
     func start() {
+        // The phone's Home shows controls for whatever is in front on the Mac (a video → ±10 s, Esc, Full screen).
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.sendState(force: false) }
+        }
         timer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.sendState(force: false)
@@ -56,6 +62,8 @@ final class MacControl: ObservableObject {
         case "call_mute_off":
             if mutedForCall { setMuted(false); mutedForCall = false }
             onCall(false)
+        case "video":
+            videoControl(m["action"] as? String ?? "", seconds: m["value"] as? Int ?? 0)
         case "tab_request":
             sendTabToPhone()
         case "shortcuts_request":
@@ -206,6 +214,63 @@ final class MacControl: ObservableObject {
         ("com.vivaldi.Vivaldi", "Vivaldi", true),
     ]
 
+    // MARK: Controls for the app in front
+
+    private static let players: Set<String> = [
+        "com.apple.QuickTimePlayerX", "com.apple.TV", "org.videolan.vlc", "com.colliderli.iina", "io.mpv",
+    ]
+
+    private var frontBundle: String? { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
+
+    /// "video" when a video player is in front, or a browser is in front while something plays in it.
+    private func frontContext() -> String? {
+        guard let front = frontBundle else { return nil }
+        if Self.players.contains(front) { return "video" }
+        if Self.browsers.contains(where: { $0.bundle == front }) || front == "org.mozilla.firefox", nowPlayingApp() != nil { return "video" }
+        return nil
+    }
+
+    /// ±10 s, Esc and full screen for the video in front, using each player's own keys.
+    private func videoControl(_ action: String, seconds: Int) {
+        guard InputControl.ensureAccessibility(prompt: true) else {
+            notify("Allow PhoneBridge to control the Mac", "System Settings → Privacy & Security → Accessibility → turn on PhoneBridge.")
+            return
+        }
+        let front = frontBundle ?? ""
+        let browser = Self.browsers.first { $0.bundle == front }
+        let isBrowser = browser != nil || front == "org.mozilla.firefox"
+        switch action {
+        case "skip":
+            let forward = seconds >= 0
+            if isBrowser {
+                // YouTube: J / L jump 10 s. Netflix, Prime Video, Hotstar and most web players: arrows jump 10 s.
+                if let browser, frontTabURL(browser)?.contains("youtube.com") == true {
+                    InputControl.press(forward ? "l" : "j")
+                } else {
+                    InputControl.press(forward ? "right" : "left")
+                }
+            } else if front == "org.videolan.vlc" {
+                InputControl.press(forward ? "right" : "left", flags: .maskAlternate)   // VLC: ⌥-arrow = 10 s
+            } else {
+                InputControl.press(forward ? "right" : "left")
+            }
+        case "esc":
+            InputControl.press("esc")
+        case "fullscreen":
+            if isBrowser { InputControl.press("f") }                                   // web players: F
+            else if front == "org.videolan.vlc" { InputControl.press("f", flags: .maskCommand) }
+            else { InputControl.press("f", flags: [.maskCommand, .maskControl]) }       // macOS: ⌃⌘F
+        default: break
+        }
+    }
+
+    private func frontTabURL(_ browser: (bundle: String, app: String, chromium: Bool)) -> String? {
+        let target = browser.chromium ? "active tab of front window" : "front document"
+        var error: NSDictionary?
+        return NSAppleScript(source: "tell application \"\(browser.app)\" to return URL of \(target)")?
+            .executeAndReturnError(&error).stringValue
+    }
+
     /// Sends the front browser's current tab to the phone. Each browser asks once for permission (Automation).
     func sendTabToPhone() {
         let running = NSWorkspace.shared.runningApplications
@@ -249,6 +314,7 @@ final class MacControl: ObservableObject {
 
     func sendState(force: Bool) {
         var state: [String: AnyHashable] = ["volume": Int((volume * 100).rounded()), "muted": muted, "finding": finding]
+        if let context = frontContext() { state["front"] = context }
         if let (level, charging) = Self.battery() {
             state["battery"] = level
             state["charging"] = charging

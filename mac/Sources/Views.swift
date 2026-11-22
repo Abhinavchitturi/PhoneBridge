@@ -304,6 +304,7 @@ struct AppsView: View {
 struct MenuContent: View {
     @ObservedObject var bridge: Bridge
     @ObservedObject var streamer: AppStreamer
+    @ObservedObject var updater = Updater.shared
 
     var body: some View {
         Text(bridge.status)
@@ -335,6 +336,12 @@ struct MenuContent: View {
         Button("Send SMS…") { bridge.composeSMS() }
             .disabled(!bridge.connected)
         Divider()
+        if let r = updater.available {
+            Button(updater.busy ? "Updating to \(r.version)…" : "Update to PhoneBridge \(r.version)…") { updater.install() }
+                .disabled(updater.busy)
+        } else {
+            Button("Check for Updates…") { updater.check(manual: true) }
+        }
         Button("Quit PhoneBridge") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
     }

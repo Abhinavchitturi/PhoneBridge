@@ -73,10 +73,14 @@ Open PhoneBridge on both devices on the same Wi-Fi (a phone hotspot works too). 
 - **Phone as a microphone** for Zoom, Meet or Teams on the Mac (uses the free [BlackHole](https://github.com/ExistentialAudio/BlackHole) virtual audio device).
 
 ### 📱 Your Mac, from your phone
-- **Trackpad and keyboard:** use the phone as a trackpad (one finger to move, tap to click, two fingers to scroll) or as a keyboard for the Mac.
+- **Trackpad and keyboard:** use the phone as a trackpad (one finger to move, tap to click, two fingers to scroll) or as a keyboard for the Mac. It follows your Mac's own trackpad settings (natural scrolling, tracking speed, swipe gestures).
+- **Three-finger gestures:** swipe left or right to switch full-screen apps and desktops, up for Mission Control, down for App Exposé. Tap with three fingers, then tap-hold and drag up or down to zoom in or out on the Mac.
+- **Full keyboard in landscape:** turn the phone sideways on the Keyboard tab for a full Mac keyboard with ⌘, ⌥, ⌃, ⇧, numbers and arrows, so shortcuts like ⌘C or ⌘Tab work.
+- **Video controls:** when a video is in front on the Mac (Netflix, YouTube, VLC, QuickTime…), Home shows −10 s, +10 s, Esc and Full screen.
 - **Mac's tab:** open the page you were viewing in your Mac's browser on the phone, so you can carry on as you leave.
 - **Remote controls:** lock or sleep the Mac, control its music and volume, and run any of your Mac **Shortcuts**.
 - **Find Mac:** play a sound on the Mac to find it.
+- **Automatic updates:** both apps check for a new version and offer **Update now**. One tap downloads it, installs it and reopens PhoneBridge. (On the phone, Android asks once to allow PhoneBridge to install updates.)
 
 ### 🔋 Device and security
 - **Battery** with charging status and time until full.

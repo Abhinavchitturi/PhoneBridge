@@ -212,6 +212,7 @@ final class Bridge: ObservableObject {
         mac.send = { [link] in link.send($0) }
         mac.notify = { [notifier] title, body in notifier.info(title, body) }
         mac.mediaCommand = { [macMedia] in macMedia.command($0) }
+        mac.nowPlayingApp = { [macMedia] in let a = macMedia.currentApp; return a.isEmpty ? nil : a }
         mac.onCall = { [macMedia] on in if on { macMedia.pauseForCall() } else { macMedia.resumeAfterCall() } }
         macMedia.send = { [link] in link.send($0) }
         mediaDeck.send = { [link] in link.send($0) }
@@ -277,6 +278,8 @@ final class Bridge: ObservableObject {
             }
         }
         commandServer.start()
+        Updater.shared.notify = { [notifier] title, body in notifier.info(title, body) }
+        Updater.shared.start()
     }
 
     /// Commands from the `pb` tool / Shortcuts: send, ring, clip, status.
