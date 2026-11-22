@@ -21,6 +21,8 @@ mkdir -p "$STAGE/src/.background"
 cp -R "$APP" "$STAGE/src/"
 ln -s /Applications "$STAGE/src/Applications"
 cp dmg/background.png "$STAGE/src/.background/background.png"
+# A double-clickable shortcut to System Settings → Privacy & Security, where "Open Anyway" lives (step 3 in the window).
+ln -s /System/Library/PreferencePanes/Security.prefPane "$STAGE/src/Privacy & Security"
 
 # 2. A writable image, so the window can be laid out
 hdiutil detach "/Volumes/$VOL" -quiet 2>/dev/null || true
@@ -35,13 +37,17 @@ tell application "Finder"
     set current view of container window to icon view
     set toolbar visible of container window to false
     set statusbar visible of container window to false
-    set the bounds of container window to {200, 120, 860, 520}
+    try
+      set pathbar visible of container window to false
+    end try
+    set the bounds of container window to {200, 120, 860, 658}
     set opts to the icon view options of container window
     set arrangement of opts to not arranged
-    set icon size of opts to 112
+    set icon size of opts to 96
     set background picture of opts to file ".background:background.png"
-    set position of item "PhoneBridge.app" of container window to {170, 210}
-    set position of item "Applications" of container window to {490, 210}
+    set position of item "PhoneBridge.app" of container window to {170, 120}
+    set position of item "Applications" of container window to {490, 120}
+    set position of item "Privacy & Security" of container window to {545, 355}
     close
     open
     update without registering applications
