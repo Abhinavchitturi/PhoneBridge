@@ -77,7 +77,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Opening the app again (Finder, Spotlight, Launchpad) brings the window back.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        MainActor.assumeIsolated { UIState.shared.show("main") }
+        MainActor.assumeIsolated {
+            UIState.shared.show("main")
+            Updater.shared.check(manual: false)   // opened again: look for a new version
+        }
         return true
     }
 
@@ -431,6 +434,9 @@ final class Bridge: ObservableObject {
             mac.sendState(force: true)
             macMedia.resend()
             note.hello()
+            // Connected: both sides look for a new version.
+            link.send(["t": "update_hint"])
+            Updater.shared.check(manual: false)
         }
     }
 

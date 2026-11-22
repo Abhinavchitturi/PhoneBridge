@@ -1,7 +1,7 @@
 import AppKit
 
 /// Keeps PhoneBridge up to date from the GitHub releases page.
-/// Checks shortly after launch and every few hours; when a newer release is out it asks once
+/// Checks when it opens, when the phone connects, and every 4 hours; when a newer release is out it asks once
 /// ("Update now?"), then downloads PhoneBridge.dmg, swaps the app in place and reopens it.
 @MainActor
 final class Updater: ObservableObject {
@@ -18,6 +18,7 @@ final class Updater: ObservableObject {
     @Published private(set) var busy = false
     var notify: (String, String) -> Void = { _, _ in }
     private var timer: Timer?
+    private var lastCheck = Date.distantPast
     /// The version we already asked about this launch, so a "Later" isn't repeated every check.
     private var askedFor: String?
 
@@ -33,6 +34,9 @@ final class Updater: ObservableObject {
     /// Asks GitHub for the latest release. `manual` (from the menu) also says when you're already up to date.
     func check(manual: Bool) {
         guard !busy else { return }
+        // Automatic checks at most once a minute (GitHub allows 60 an hour).
+        guard manual || Date().timeIntervalSince(lastCheck) > 60 else { return }
+        lastCheck = Date()
         Task {
             let release = await Self.fetchLatest()
             guard let release else {

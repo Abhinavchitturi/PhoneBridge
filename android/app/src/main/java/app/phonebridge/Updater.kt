@@ -20,14 +20,16 @@ import java.net.URL
 import kotlin.concurrent.thread
 
 /**
- * Keeps the phone app up to date from the GitHub releases page: checks on open (at most every few hours),
+ * Keeps the phone app up to date from the GitHub releases page: checks when opened, when the Mac connects and every 4 hours,
  * shows "Update available" on Home, and on a tap downloads PhoneBridge.apk and installs it over itself.
  * Android shows its own install confirmation the first time; once PhoneBridge has installed itself,
  * later updates go through without it.
  */
 object Updater {
     private const val REPO = "Abhinavchitturi/PhoneBridge"
-    private const val CHECK_EVERY_MS = 3 * 60 * 60 * 1000L
+    private const val CHECK_EVERY_MS = 4 * 60 * 60 * 1000L
+    /** Opening the app or connecting checks right away, but never more than once a minute (GitHub's limits). */
+    private const val MIN_GAP_MS = 60 * 1000L
     private const val TAG = "PhoneBridge"
 
     class Release(val version: String, val apkUrl: String, val notes: String)
@@ -49,7 +51,8 @@ object Updater {
         val now = System.currentTimeMillis()
         // Remember what was found last time, so the banner shows right away between checks.
         if (available == null) restore(app)
-        if (checking || (!force && now - prefs.getLong("updateChecked", 0) < CHECK_EVERY_MS)) { onDone?.invoke(available != null); return }
+        val since = now - prefs.getLong("updateChecked", 0)
+        if (checking || since < MIN_GAP_MS || (!force && since < CHECK_EVERY_MS)) { onDone?.invoke(available != null); return }
         checking = true
         thread(name = "update-check") {
             val r = fetchLatest()

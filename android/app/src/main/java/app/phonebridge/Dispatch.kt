@@ -37,6 +37,7 @@ object Dispatch {
                 "ring_stop" -> Ringer.stop(ctx)
                 "apps_request" -> AppList.send(ctx)
                 "mac_state" -> MacRemote.onState(m)
+                "update_hint" -> Updater.check(ctx, force = true)   // just connected to the Mac: look for a new version
                 "shortcuts" -> MacRemote.onShortcuts(m)
                 "mac_media" -> MacRemote.onMedia(m)
                 "deck_state" -> MacRemote.onDeck(m)

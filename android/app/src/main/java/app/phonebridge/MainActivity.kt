@@ -216,7 +216,7 @@ class MainActivity : Activity() {
         ThemeStore.push(this)   // keep the Mac on the same theme
         Link.listeners.add(refresh)
         Updater.clearUpdatedNotice(this)
-        Updater.check(this)
+        Updater.check(this, force = true)   // every time the app is opened
         when (tab) {
             Tab.HOME -> render()
             Tab.NOTES -> notesView.start()
