@@ -20,6 +20,11 @@ final class PhoneLink {
     var onStranger: (String) -> Void = { _ in }
     /// (code, phoneName, decision) — call decision(true) if the user confirms the code.
     var askPairing: (String, String, @escaping (Bool) -> Void) -> Void = { _, _, d in d(false) }
+    /// The pairing request went away before the user answered (the phone rejected or disconnected) — close the dialog.
+    var pairingGone: () -> Void = {}
+    /// The phone turned us away. (why, phoneName): "busy" = paired but using another computer right now,
+    /// "unpaired" = it's paired with other computers and isn't accepting new ones (Pair a new computer is off).
+    var onRefused: (String, String) -> Void = { _, _ in }
 
     private let queue = DispatchQueue(label: "phonebridge.link")
     private var browser: NWBrowser?
@@ -38,6 +43,9 @@ final class PhoneLink {
     private var peerName = "Phone"
     private var sentTrust = false
     private var gotTrust = false
+    /// Newer phones (hello v3+) send "pair" once they're willing to pair; until then don't show a code.
+    private var awaitingPair = false
+    private var askingPair = false
     private var sendSealer: Sealer?
     private var recvSealer: Sealer?
     private var lastReceived = Date()
@@ -194,6 +202,8 @@ final class PhoneLink {
         ikm = Data()
         sentTrust = false
         gotTrust = false
+        awaitingPair = false
+        if askingPair { askingPair = false; pairingGone() }
         sendSealer = nil
         recvSealer = nil
     }
@@ -254,21 +264,15 @@ final class PhoneLink {
                 sendPlain(["t": "reject"], on: c)
                 c.cancel()
                 onStranger(peerName)
+            } else if (msg["v"] as? Int ?? 0) >= 3 {
+                awaitingPair = true // the phone may still turn us away (it's paired with other computers)
             } else {
-                onState(.pairing(peerName))
-                askPairing(Keys.pairingCode(s), peerName) { [weak self] ok in
-                    self?.queue.async {
-                        guard let self, self.conn === c else { return }
-                        if ok {
-                            Keys.trustedPhone = self.peerPub
-                            self.defaults.set(self.peerName, forKey: "phoneName")
-                            self.sendTrust(on: c)
-                        } else {
-                            self.sendPlain(["t": "reject"], on: c)
-                            c.cancel()
-                        }
-                    }
-                }
+                askToPair(on: c)
+            }
+        case "pair":
+            if awaitingPair {
+                awaitingPair = false
+                askToPair(on: c)
             }
         case "trust":
             // After the phone's "trust", everything it sends is encrypted.
@@ -276,9 +280,29 @@ final class PhoneLink {
             gotTrust = true
             maybeReady(on: c)
         case "reject":
+            if let why = msg["why"] as? String { onRefused(why, peerName) }
             c.cancel()
         default:
             break
+        }
+    }
+
+    private func askToPair(on c: NWConnection) {
+        onState(.pairing(peerName))
+        askingPair = true
+        askPairing(Keys.pairingCode(shared), peerName) { [weak self] ok in
+            self?.queue.async {
+                guard let self, self.conn === c else { return }
+                self.askingPair = false
+                if ok {
+                    Keys.trustedPhone = self.peerPub
+                    self.defaults.set(self.peerName, forKey: "phoneName")
+                    self.sendTrust(on: c)
+                } else {
+                    self.sendPlain(["t": "reject"], on: c)
+                    c.cancel()
+                }
+            }
         }
     }
 

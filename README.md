@@ -51,6 +51,8 @@ You need **both**: the Mac app and the phone app. Install them, then pair them o
 ### 3. Pair them
 Open PhoneBridge on both devices on the same Wi-Fi (a phone hotspot works too). They find each other and both show the same **6-digit code**. If the codes match, tap **Pair** on both. You only do this once.
 
+**More than one computer?** One phone can be paired with several computers and uses one at a time. On the phone, open **Settings → Computers** (or tap the computer's name on Home) → **Pair a new computer** to add another, and tap **Connect** next to any paired computer to switch to it. Rename and Forget are there too.
+
 ---
 
 ## ✨ Features
@@ -105,7 +107,7 @@ PhoneBridge is designed so your data never leaves your own devices.
 
 - **No account, no cloud, no analytics, no ads.** Your phone and Mac talk to each other directly. There are no PhoneBridge servers.
 - **End-to-end encrypted.** After pairing, everything is encrypted with AES-256-GCM, using keys from an X25519 key agreement. Every connection uses fresh keys, so a stolen long-term key can't decrypt past sessions (forward secrecy).
-- **You verify the pairing.** The matching 6-digit code on both screens protects against anyone connecting in between. After pairing, each device talks only to the other and refuses everything else.
+- **You verify the pairing.** The matching 6-digit code on both screens protects against anyone connecting in between. After pairing, the Mac talks only to its phone, and the phone only to the computers in its list; anything else is refused. A phone accepts a new computer only while you have **Pair a new computer** open.
 - **Keys are stored securely:** in the Keychain on the Mac, and sealed with an Android Keystore key on the phone (hardware-backed where available).
 - **You decide about your texts.** The **SMS on Mac** switch (phone: **Settings → SMS on Mac**) turns off everything that touches SMS: the Messages tab, sending from the Mac, login codes and the missed-call auto-reply. Android then stops waking PhoneBridge for new texts at all. Only the phone can switch it back on, and it can also take away the SMS permission for you.
 - **Every permission is optional.** Skip any you don't want and use everything else.

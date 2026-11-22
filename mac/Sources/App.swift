@@ -157,6 +157,10 @@ final class Bridge: ObservableObject {
     @Published var phoneName = "Phone"
     /// Name of a phone that has been found and is waiting for the pairing code to be confirmed.
     @Published var foundPhone: String?
+    /// Why the paired phone isn't connecting, when it told us (it's using another computer, or not taking new ones).
+    @Published var phoneNote: String?
+    private var phoneNoteClear: DispatchWorkItem?
+    private var pairingAlert: NSAlert?
     @Published var apps: [PhoneApp] = []
     @Published var nowPlaying: NowPlaying?
     @Published var phoneDnd = false
@@ -210,6 +214,8 @@ final class Bridge: ObservableObject {
         streamer.onSetupDone = { [link] in link.send(["t": "debug_off"]) }
         cast.notify = { [notifier] title, body in notifier.info(title, body) }
         link.askPairing = { code, name, decide in Task { @MainActor in self.askPairing(code, name, decide) } }
+        link.pairingGone = { Task { @MainActor in self.closePairingAlert() } }
+        link.onRefused = { why, name in Task { @MainActor in self.refused(why, name) } }
         notifier.send = { [link] in link.send($0) }
         notifier.onDismiss = { [history] key in Task { @MainActor in history.markRemoved(key) } }
         mac.send = { [link] in link.send($0) }
@@ -423,10 +429,12 @@ final class Bridge: ObservableObject {
         case .pairing(let name):
             connected = false
             foundPhone = name
+            phoneNote = nil
             status = "Pairing with \(name)…"
         case .connected(let name):
             connected = true
             foundPhone = nil
+            phoneNote = nil
             FxCenter.shared.fire(.connect, space: "main")
             FxCenter.shared.haptic(.levelChange)
             phoneName = name
@@ -575,7 +583,32 @@ final class Bridge: ObservableObject {
         alert.informativeText = "Check that your phone shows the same code:\n\n\(code)"
         alert.addButton(withTitle: "Pair")
         alert.addButton(withTitle: "Cancel")
-        decide(alert.runModal() == .alertFirstButtonReturn)
+        pairingAlert = alert
+        let answer = alert.runModal()
+        pairingAlert = nil
+        decide(answer == .alertFirstButtonReturn)
+    }
+
+    /// The phone rejected or dropped the pairing while the code was on screen: don't leave a dead dialog up.
+    private func closePairingAlert() {
+        guard let alert = pairingAlert, NSApp.modalWindow === alert.window else { return }
+        NSApp.abortModal()
+    }
+
+    /// The phone said why it won't connect. It keeps saying so on every retry, so this is a quiet line, not a notification.
+    private func refused(_ why: String, _ name: String) {
+        switch why {
+        case "busy":
+            phoneNote = "“\(name)” is using another computer. To use it here, open PhoneBridge on the phone → Computers and tap Connect next to this Mac."
+        case "unpaired":
+            phoneNote = "“\(name)” is paired with other computers. To add this Mac, open PhoneBridge on the phone → Computers → Pair a new computer."
+        default:
+            return
+        }
+        phoneNoteClear?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.phoneNote = nil }
+        phoneNoteClear = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: work) // the phone stopped answering: back to the usual hint
     }
 
     func pickFile() {
