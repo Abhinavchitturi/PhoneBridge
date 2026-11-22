@@ -24,7 +24,7 @@
 | 💻 **Mac** | [**PhoneBridge.dmg**](https://github.com/Abhinavchitturi/PhoneBridge/releases/latest/download/PhoneBridge.dmg) | macOS 15 or later |
 | 📱 **Android phone** | [**PhoneBridge.apk**](https://github.com/Abhinavchitturi/PhoneBridge/releases/latest/download/PhoneBridge.apk) | Android 13 or later |
 
-You need **both**: the Mac app and the phone app. Install them, then pair them once ([steps below](#-get-started-in-3-steps)). Older versions and SHA-256 checksums are on the [Releases page](https://github.com/Abhinavchitturi/PhoneBridge/releases).
+You need **both**: the Mac app and the phone app. Install them, then pair them once ([steps below](#-get-started-in-3-steps)). Older versions and each file's SHA-256 are on the [Releases page](https://github.com/Abhinavchitturi/PhoneBridge/releases).
 
 ---
 
@@ -230,11 +230,11 @@ adb install -r app/build/outputs/apk/release/app-release.apk   # or send the fil
 
 **Release files**
 ```bash
-./release.sh   # builds release/PhoneBridge-<version>.dmg and .apk, plus SHA256SUMS.txt
+./release.sh   # builds release/PhoneBridge.dmg and release/PhoneBridge.apk
 ```
 To publish:
 ```bash
-gh release create v<version> release/PhoneBridge-<version>.dmg release/PhoneBridge-<version>.apk release/PhoneBridge.dmg release/PhoneBridge.apk release/SHA256SUMS.txt --generate-notes
+gh release create v<version> release/PhoneBridge.dmg release/PhoneBridge.apk --generate-notes
 ```
 The plain-named `PhoneBridge.dmg` and `PhoneBridge.apk` copies keep the download links at the top of this page pointing to the latest version.
 
