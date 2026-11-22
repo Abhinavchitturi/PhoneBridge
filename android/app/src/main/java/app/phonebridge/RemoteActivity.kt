@@ -46,6 +46,8 @@ class RemoteActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         actionBar?.hide()
+        // Upright by default; only the full keyboard turns the screen sideways.
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(bg)
@@ -90,7 +92,27 @@ class RemoteActivity : Activity() {
 
     private val landscape get() = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
+    private fun fullKeyboardOn() {
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, backToVertical)
+    }
+
+    /** Leaving the full keyboard (Vertical key, Back, another tab): stand the screen back up. */
+    private fun vertical() {
+        onBackInvokedDispatcher.unregisterOnBackInvokedCallback(backToVertical)
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+    }
+
+    private val backToVertical = android.window.OnBackInvokedCallback { vertical() }
+
+    // Older back handling (Android 13–15 without predictive back): same thing.
+    @Deprecated("Kept for Android versions that still deliver it")
+    override fun onBackPressed() {
+        if (requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) vertical() else super.onBackPressed()
+    }
+
     private fun show(i: Int) {
+        if (i != 1 && requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_PORTRAIT) vertical()
         mode = i
         tabs.forEachIndexed { j, t ->
             t.background = if (j == i) rounded(brand, 100) else null
@@ -235,7 +257,7 @@ class RemoteActivity : Activity() {
             addView(label("Type here — it appears on your Mac", 14f, muted), LinearLayout.LayoutParams(0, -2, 1f))
             addView(bigButton("Full keyboard ⟳", size = 13f) {
                 // Turn sideways for a full Mac keyboard with ⌘ ⌥ ⌃ ⇧, numbers and arrows.
-                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                fullKeyboardOn()
             }.apply { setPadding(dp(14), dp(8), dp(14), dp(8)) })
         })
         val input = EditText(this).apply {
@@ -307,7 +329,7 @@ class RemoteActivity : Activity() {
             listOf(mod("control", "ctrl", 1.9f)) + "asdfghjkl;'".map { ch(it.toString()) } + sp("return", "return", 2.1f),
             listOf(mod("shift", "shift", 2.4f)) + "zxcvbnm,./".map { ch(it.toString()) } + sp("↑", "up", 1f) + mod("shift", "shift", 1.6f),
             listOf(
-                K("▭ text", 1.5f) { requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT },
+                K("▯ Vertical", 1.5f) { vertical() },
                 mod("option", "opt", 1.4f), mod("⌘ cmd", "cmd", 1.7f), sp("space", "space", 5.6f),
                 mod("⌘ cmd", "cmd", 1.7f), mod("option", "opt", 1.4f),
                 sp("←", "left", 1f), sp("↓", "down", 1f), sp("→", "right", 1f),

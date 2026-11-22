@@ -222,23 +222,62 @@ final class MacControl: ObservableObject {
 
     private var frontBundle: String? { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
 
-    /// "video" when a video player is in front, or a browser is in front while something plays in it.
-    private func frontContext() -> String? {
-        guard let front = frontBundle else { return nil }
-        if Self.players.contains(front) { return "video" }
-        if Self.browsers.contains(where: { $0.bundle == front }) || front == "org.mozilla.firefox", nowPlayingApp() != nil { return "video" }
+    private static func isBrowser(_ bundle: String) -> Bool {
+        browsers.contains { $0.bundle == bundle } || bundle == "org.mozilla.firefox"
+    }
+
+    private static func isVideoApp(_ bundle: String) -> Bool { players.contains(bundle) || isBrowser(bundle) }
+
+    /// The last app that had a video, so the controls don't vanish the moment you click elsewhere on the Mac.
+    private var lastVideo: (app: NSRunningApplication, at: Date)?
+
+    /// The app the video controls act on: a player in front, a browser in front with something loaded,
+    /// the browser or player that Now Playing names, or the last video app (for 30 minutes, while it's open).
+    private func videoApp() -> NSRunningApplication? {
+        let ws = NSWorkspace.shared
+        var found: NSRunningApplication?
+        let playing = nowPlayingApp()
+        if let front = ws.frontmostApplication, let id = front.bundleIdentifier,
+           Self.players.contains(id) || (Self.isBrowser(id) && playing != nil) {
+            found = front
+        } else if let playing {
+            // Now Playing says e.g. "Safari Graphics and Media" or "Brave Browser": match the running app by name.
+            found = ws.runningApplications.first { app in
+                guard let id = app.bundleIdentifier, Self.isVideoApp(id), let name = app.localizedName else { return false }
+                return playing.hasPrefix(name)
+            }
+        }
+        if let found {
+            lastVideo = (found, Date())
+            return found
+        }
+        if let last = lastVideo, !last.app.isTerminated, Date().timeIntervalSince(last.at) < 30 * 60 { return last.app }
         return nil
     }
 
-    /// ±10 s, Esc and full screen for the video in front, using each player's own keys.
+    /// "video" while there's a video to control on the Mac.
+    private func frontContext() -> String? { videoApp() != nil ? "video" : nil }
+
+    /// ±10 s, Esc and full screen for the video, using each player's own keys. Brings its app forward first,
+    /// because keys go to the app in front.
     private func videoControl(_ action: String, seconds: Int) {
         guard InputControl.ensureAccessibility(prompt: true) else {
             notify("Allow PhoneBridge to control the Mac", "System Settings → Privacy & Security → Accessibility → turn on PhoneBridge.")
             return
         }
-        let front = frontBundle ?? ""
-        let browser = Self.browsers.first { $0.bundle == front }
-        let isBrowser = browser != nil || front == "org.mozilla.firefox"
+        guard let app = videoApp() else { return }
+        let bundle = app.bundleIdentifier ?? ""
+        if !app.isActive {
+            app.activate()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.pressVideoKey(action, seconds: seconds, bundle: bundle) }
+        } else {
+            pressVideoKey(action, seconds: seconds, bundle: bundle)
+        }
+    }
+
+    private func pressVideoKey(_ action: String, seconds: Int, bundle: String) {
+        let browser = Self.browsers.first { $0.bundle == bundle }
+        let isBrowser = Self.isBrowser(bundle)
         switch action {
         case "skip":
             let forward = seconds >= 0
@@ -249,7 +288,7 @@ final class MacControl: ObservableObject {
                 } else {
                     InputControl.press(forward ? "right" : "left")
                 }
-            } else if front == "org.videolan.vlc" {
+            } else if bundle == "org.videolan.vlc" {
                 InputControl.press(forward ? "right" : "left", flags: .maskAlternate)   // VLC: ⌥-arrow = 10 s
             } else {
                 InputControl.press(forward ? "right" : "left")
@@ -258,7 +297,7 @@ final class MacControl: ObservableObject {
             InputControl.press("esc")
         case "fullscreen":
             if isBrowser { InputControl.press("f") }                                   // web players: F
-            else if front == "org.videolan.vlc" { InputControl.press("f", flags: .maskCommand) }
+            else if bundle == "org.videolan.vlc" { InputControl.press("f", flags: .maskCommand) }
             else { InputControl.press("f", flags: [.maskCommand, .maskControl]) }       // macOS: ⌃⌘F
         default: break
         }

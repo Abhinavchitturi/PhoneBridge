@@ -32,10 +32,15 @@ You need **both**: the Mac app and the phone app. Install them, then pair them o
 
 ### 1. Install on your Mac
 1. Open **PhoneBridge.dmg** and drag **PhoneBridge** into **Applications**.
-2. Open it. Because PhoneBridge isn't from the App Store, macOS warns that it's from an unidentified developer the first time. **Right-click the app → Open → Open**. If there's no Open button, run this once in Terminal and try again:
+2. Open it. The first time, macOS says **"PhoneBridge" Not Opened: Apple could not verify "PhoneBridge" is free of malware**. That's because PhoneBridge is a free app that isn't registered with Apple, not because anything is wrong with it. Click **Done** (not Move to Trash), then allow it once:
+   - Open **System Settings → Privacy & Security** and scroll to the bottom.
+   - Next to **"PhoneBridge" was blocked to protect your Mac**, click **Open Anyway**, enter your Mac password, then click **Open Anyway** again.
+
+   Or skip all that by running this once in Terminal, then opening PhoneBridge again:
    ```bash
    xattr -dr com.apple.quarantine /Applications/PhoneBridge.app
    ```
+   You only do this once. Later versions install themselves through **Update Now**, without this warning.
 3. PhoneBridge lives in the **menu bar**. Allow **Notifications** and **Local Network** when macOS asks. Other permissions are requested only when you turn on the feature that needs them.
 
 ### 2. Install on your phone

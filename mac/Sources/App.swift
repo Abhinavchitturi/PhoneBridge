@@ -214,7 +214,10 @@ final class Bridge: ObservableObject {
         mac.mediaCommand = { [macMedia] in macMedia.command($0) }
         mac.nowPlayingApp = { [macMedia] in let a = macMedia.currentApp; return a.isEmpty ? nil : a }
         mac.onCall = { [macMedia] on in if on { macMedia.pauseForCall() } else { macMedia.resumeAfterCall() } }
-        macMedia.send = { [link] in link.send($0) }
+        macMedia.send = { [link, mac] m in
+            link.send(m)
+            Task { @MainActor in mac.sendState(force: false) }   // the phone's video controls follow Now Playing
+        }
         mediaDeck.send = { [link] in link.send($0) }
         mediaDeck.currentApp = { [macMedia] in macMedia.currentApp }
         mediaDeck.currentTitle = { [macMedia] in macMedia.currentTitle }

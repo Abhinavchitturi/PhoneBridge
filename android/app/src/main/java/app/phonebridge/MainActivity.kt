@@ -408,12 +408,7 @@ class MainActivity : Activity() {
                 Triple(LineIcon.BACK10, "−10 s") { MacRemote.command("video", "action" to "skip", "value" to -10) },
                 Triple(LineIcon.FWD10, "+10 s") { MacRemote.command("video", "action" to "skip", "value" to 10) },
                 Triple(LineIcon.ESC, "Esc") { MacRemote.command("video", "action" to "esc") },
-            ))
-            card.addView(tileRow(
-                Triple(LineIcon.FULLSCREEN, "Full screen") { MacRemote.command("video", "action" to "fullscreen") },
-                if (MacRemote.nowPlaying?.playing == true) Triple(LineIcon.PAUSE, "Pause") { MacRemote.command("play_pause") }
-                else Triple(LineIcon.PLAY, "Play") { MacRemote.command("play_pause") },
-                Triple(LineIcon.MOUSE, "Trackpad") { startActivity(Intent(this, RemoteActivity::class.java)) },
+                Triple(LineIcon.FULLSCREEN, "Fullscreen") { MacRemote.command("video", "action" to "fullscreen") },
             ))
         }
         MacRemote.nowPlaying?.let { card.addView(macNowPlaying(it)) }
