@@ -29,7 +29,7 @@ internal sealed class WebHost
 
     private static SynchronizationContext EnsureContext()
     {
-        if (SynchronizationContext.Current is WindowsFormsSynchronizationContext c) return c;
+        if (SynchronizationContext.Current is UiThread or WindowsFormsSynchronizationContext) return SynchronizationContext.Current;
         var ctx = new WindowsFormsSynchronizationContext();
         SynchronizationContext.SetSynchronizationContext(ctx);
         return ctx;

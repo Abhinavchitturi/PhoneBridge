@@ -171,6 +171,8 @@ internal sealed partial class TrayApp
     {
         if (Environment.CurrentManagedThreadId == _uiThread) return false;
         Log.Write($"{what} called off the UI thread, moved onto it:\n{Environment.StackTrace}");
+        // Phone messages and connection changes are always handed to the UI thread first; arriving here means that broke.
+        if (what is nameof(Handle) or nameof(Update)) SelfTest.Error(what, "ran off the UI thread");
         return true;
     }
 

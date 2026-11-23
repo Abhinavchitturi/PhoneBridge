@@ -16,7 +16,8 @@ internal sealed partial class TrayApp : ApplicationContext
 {
     private const string Repo = "https://github.com/Abhinavchitturi/PhoneBridge";
 
-    private readonly SynchronizationContext _ui;
+    private readonly UiThread _ui;
+    internal UiThread Ui => _ui;
     private readonly LinkStore _store;
     private readonly PhoneLink _link;
     private readonly Transfers _transfers;
@@ -58,8 +59,10 @@ internal sealed partial class TrayApp : ApplicationContext
 
     private TrayApp(LinkStore store)
     {
-        _ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
-        _uiThread = Environment.CurrentManagedThreadId;
+        _ui = new UiThread();
+        // Also the thread's context, so code that awaits on the UI thread comes back to it.
+        SynchronizationContext.SetSynchronizationContext(_ui);
+        _uiThread = _ui.ThreadId;
         _store = store;
         _phoneName = store.PhoneName ?? "your phone";
         _icon = LoadIcon();

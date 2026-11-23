@@ -45,7 +45,7 @@ internal static class Program
         try { app = TrayApp.Create(); }
         catch (Exception e) { Crash(e); return; }
         if (app == null) return;
-        var ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+        var ui = app.Ui;
         _ = Task.Run(() => Listen(a => ui.Post(_ => app.FromCommandLine(a), null)));
         if (selfTest) SelfTest.Run(app);
         else if (args.Any(a => a != "--send")) ui.Post(_ => app.FromCommandLine(args), null);
