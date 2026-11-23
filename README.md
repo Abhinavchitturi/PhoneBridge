@@ -27,7 +27,7 @@
 
 You need **both**: the computer app (Mac or Windows) and the phone app. Install them, then pair them once ([steps below](#-get-started-in-3-steps)). Older versions and each file's SHA-256 are on the [Releases page](https://github.com/Abhinavchitturi/PhoneBridge/releases).
 
-> 🪟 **Windows (preview):** the Windows app has the same design and features as the Mac app (see [`windows/README.md`](windows/README.md)). It's one file: download it, run it, and it keeps itself up to date. Windows may warn that it's from an unknown publisher (it isn't code-signed yet): choose **More info → Run anyway**.
+> 🪟 **Windows (preview):** the Windows app has the same design and features as the Mac app (see [`windows/README.md`](windows/README.md)). Download it and open it: it installs itself (Start menu, Settings → Apps), keeps itself up to date, and you can delete the download afterwards. Windows may warn that it's from an unknown publisher (it isn't code-signed yet): choose **More info → Run anyway**.
 
 ---
 

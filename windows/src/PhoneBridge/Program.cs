@@ -8,15 +8,18 @@ namespace PhoneBridge;
 /// PhoneBridge.exe                 starts the app (or brings the running one's window up)
 /// PhoneBridge.exe file1 file2…    sends files to the phone (this is what Explorer's Send to → PhoneBridge does)
 /// PhoneBridge.exe --text "hello"  puts text on the phone's clipboard
+/// PhoneBridge.exe --uninstall     removes it (what Settings → Apps → Uninstall runs); --portable runs a download without installing
 /// A second copy hands its request to the running one over a named pipe and exits.
 /// </summary>
 internal static class Program
 {
     private static readonly string PipeName = "PhoneBridge.Windows." + Environment.UserName;
+    private const string MutexName = @"Local\PhoneBridge.Windows";
 
     [STAThread]
     private static void Main(string[] args)
     {
+        ApplicationConfiguration.Initialize();
         // Started by the updater: let the old copy finish quitting first (it holds the single-instance lock).
         var i = Array.IndexOf(args, "--after-update");
         if (i >= 0 && i + 1 < args.Length && int.TryParse(args[i + 1], out var oldPid))
@@ -25,8 +28,12 @@ internal static class Program
             args = args.Where((_, k) => k != i && k != i + 1).ToArray();
         }
 
+        // Opened from a download (or a download that just updated itself): install, start the installed copy and
+        // leave, so the downloaded file isn't in use. Also --uninstall.
+        if (Installer.Handle(args, PipeName, MutexName)) return;
+
         // One copy per Windows user: a second one would dial the phone too and the two would keep replacing each other.
-        using var single = new Mutex(true, @"Local\PhoneBridge.Windows", out var first);
+        using var single = new Mutex(true, MutexName, out var first);
         if (!first)
         {
             Forward(args);
@@ -35,7 +42,7 @@ internal static class Program
 
         var selfTest = Array.IndexOf(args, "--selftest") >= 0;
         if (selfTest) SelfTest.Begin();
-        ApplicationConfiguration.Initialize();
+        Installer.Refresh();
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
         Application.ThreadException += (_, e) => { Log.Write("UI error: " + e.Exception); SelfTest.Error("UI", e.Exception); };
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Crash(e.ExceptionObject);

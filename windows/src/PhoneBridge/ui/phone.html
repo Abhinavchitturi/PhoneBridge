@@ -13,15 +13,29 @@
 <link rel="stylesheet" href="common.css">
 <style>
   body { display: flex; }
-  #main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
-  #panel { width: 320px; flex: none; border-left: 1px solid var(--stroke); background: rgba(255, 255, 255, .03); display: flex; flex-direction: column; }
+  #main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; overflow: hidden; container: main / inline-size; }
+  /* Opaque, so nothing ever shows through it. */
+  #panel { width: 320px; flex: none; border-left: 1px solid var(--stroke); background: color-mix(in srgb, var(--bg) 94%, #fff); display: flex; flex-direction: column; }
   body.no-panel #panel { display: none; }
-  .backdrop-art { position: absolute; top: 0; right: 0; width: 380px; height: 320px; pointer-events: none; opacity: 1; }
+  /* A narrow window (or big display scaling): the panel floats over the content instead of squeezing it, and starts closed. */
+  body.narrow #panel { position: fixed; top: 0; right: 0; bottom: 0; z-index: 8; box-shadow: -18px 0 50px rgba(0, 0, 0, .5); animation: slidein .22s cubic-bezier(.2, .9, .3, 1); }
+  @keyframes slidein { from { transform: translateX(24px); opacity: 0; } }
+  /* The theme picture sits behind the top bar and fades out before it reaches the content. */
+  .backdrop-art { position: absolute; top: 0; right: 0; width: 380px; height: 320px; pointer-events: none; opacity: .55;
+    -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 18%, transparent 55%); mask-image: linear-gradient(to bottom, #000 0, #000 18%, transparent 55%); }
 
   /* Top bar */
   .topbar { display: flex; align-items: center; gap: 12px; padding: 22px 18px 12px 26px; position: relative; z-index: 1; }
-  .topbar h1 { font: 700 clamp(18px, 2.1vw, 26px)/1.1 var(--font-rounded); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .chip { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-radius: 16px; background: var(--card); border: 1px solid var(--stroke); }
+  .topbar h1 { font: 700 clamp(18px, 2.1vw, 26px)/1.1 var(--font-rounded); flex: 1 0 auto; min-width: 0; white-space: nowrap; }
+  .chip { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-radius: 16px; background: var(--card); border: 1px solid var(--stroke); min-width: 0; flex: 0 1 auto; overflow: hidden; }
+  .chip > div { min-width: 0; }
+  .chip b, .chip small { overflow: hidden; text-overflow: ellipsis; }
+  .topbar .quick { flex: none; }
+  /* Less room: drop the extras first, the way a toolbar collapses, so the title and the phone stay readable. */
+  #chip-batt { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  @container main (max-width: 860px) { .topbar .quick.opt { display: none; } }
+  @container main (max-width: 720px) { .topbar .quick.opt2, .topbar .vsep { display: none; } }
+  @container main (max-width: 620px) { .chip { display: none; } }
   .chip .phone { width: 26px; height: 34px; border-radius: 8px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font-size: 14px; }
   .chip b { font-size: 13px; font-weight: 600; display: block; white-space: nowrap; }
   .chip small { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--secondary); white-space: nowrap; }
@@ -300,6 +314,8 @@
   .offline .big-serif { color: var(--text); }
   .toast-msg { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); z-index: 10; padding: 10px 16px; border-radius: 14px; background: rgba(40,40,44,.95); border: 1px solid var(--stroke); font-size: 12.5px; display: none; box-shadow: 0 8px 30px rgba(0,0,0,.4); }
   .toast-msg.show { display: block; animation: pop .2s; }
+  /* Narrow windows (after the rules above, so these win). */
+  @container main (max-width: 760px) { .threads { width: 250px; } .dialcol { width: 280px; } .rail { width: 200px; } }
 </style>
 </head>
 <body data-tab="messages">
@@ -312,10 +328,10 @@
       <div><b id="chip-name">Phone</b><small><i class="dot" id="chip-dot"></i><span id="chip-status">Offline</span><span id="chip-batt"></span></small></div>
     </div>
     <button class="quick" data-cmd="palette" title="Search & commands (Ctrl+K)"><svg class="ico"><use href="#i-search"/></svg></button>
-    <button class="quick" data-cmd="reconnect" title="Reconnect to phone"><svg class="ico"><use href="#i-refresh"/></svg></button>
-    <button class="quick needs" id="q-dnd" data-cmd="dnd" title="Do Not Disturb"><svg class="ico"><use href="#i-moon"/></svg></button>
+    <button class="quick opt" data-cmd="reconnect" title="Reconnect to phone"><svg class="ico"><use href="#i-refresh"/></svg></button>
+    <button class="quick needs opt" id="q-dnd" data-cmd="dnd" title="Do Not Disturb"><svg class="ico"><use href="#i-moon"/></svg></button>
     <button class="quick needs" id="q-ring" data-cmd="ring" title="Ring phone"><svg class="ico"><use href="#i-bell-waves"/></svg></button>
-    <button class="quick needs" data-cmd="send-files" title="Send a file to the phone"><svg class="ico"><use href="#i-share"/></svg></button>
+    <button class="quick needs opt2" data-cmd="send-files" title="Send a file to the phone"><svg class="ico"><use href="#i-share"/></svg></button>
     <button class="quick needs" data-cmd="mirror" title="Show phone screen"><svg class="ico"><use href="#i-screen"/></svg></button>
     <div class="vsep"></div>
     <button class="quick" id="q-panel" data-cmd="panel" title="Show notifications"><svg class="ico"><use href="#i-bell"/></svg><span class="badge" id="panel-badge" style="display:none"></span></button>

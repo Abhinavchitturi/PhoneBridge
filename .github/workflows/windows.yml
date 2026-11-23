@@ -46,10 +46,43 @@ jobs:
           "---- selftest.txt"; Get-Content (Join-Path $dir 'selftest.txt') -ErrorAction SilentlyContinue
           "---- phonebridge.log"; Get-Content (Join-Path $dir 'phonebridge.log') -ErrorAction SilentlyContinue
           "exit code: $($p.ExitCode)"
+          New-Item -ItemType Directory -Force out/screens | Out-Null
+          Copy-Item (Join-Path $dir 'selftest-*.png') out/screens -ErrorAction SilentlyContinue
           if ($p.ExitCode -ne 0) { exit 1 }
+
+      - name: Installer (install quietly, run the installed copy, uninstall)
+        run: |
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\PhoneBridge\PhoneBridge.exe'
+          $lnk = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\PhoneBridge.lnk'
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\PhoneBridge'
+          $i = Start-Process out/win-x64/PhoneBridge.exe -ArgumentList '--install','--quiet','--no-launch' -PassThru -Wait
+          "install exit code: $($i.ExitCode)"
+          if (-not (Test-Path $exe)) { "not installed: $exe"; exit 1 }
+          if (-not (Test-Path $lnk)) { "no Start menu entry: $lnk"; exit 1 }
+          Get-ItemProperty $key | Format-List DisplayName, DisplayVersion, Publisher, UninstallString, InstallLocation
+          $r = Start-Process $exe -PassThru
+          Start-Sleep 10
+          if ($r.HasExited) { "the installed copy quit: $($r.ExitCode)"; Get-Content (Join-Path $env:LOCALAPPDATA 'PhoneBridge\phonebridge.log') -Tail 30; exit 1 }
+          "installed copy is running (pid $($r.Id))"
+          # With the installed copy running, the downloaded exe must not be in use (so it can be deleted).
+          [IO.File]::Open((Resolve-Path out/win-x64/PhoneBridge.exe), 'Open', 'ReadWrite', 'None').Close()
+          "the downloaded exe is free to delete"
+          Start-Process $exe -ArgumentList '--uninstall','--quiet' -Wait
+          Start-Sleep 6
+          if (-not $r.HasExited) { "uninstall didn't stop the running copy"; exit 1 }
+          if (Test-Path $key) { "Apps entry left behind"; exit 1 }
+          if (Test-Path $lnk) { "Start menu entry left behind"; exit 1 }
+          if (Test-Path (Split-Path $exe)) { "program folder left behind"; Get-ChildItem (Split-Path $exe); exit 1 }
+          "installer OK: installed, ran, uninstalled cleanly"
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: PhoneBridge-Windows
           path: windows/out/win-x64/PhoneBridge.exe
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: selftest-screens
+          path: windows/out/screens

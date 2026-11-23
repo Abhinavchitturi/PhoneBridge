@@ -18,8 +18,9 @@ internal sealed class PhoneWindow : Form
         Icon = icon;
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScaleDimensions = new SizeF(96F, 96F);
-        ClientSize = new Size(1180, 760);
-        MinimumSize = new Size(1040, 680);
+        // Sizes are in 96-dpi units, scaled for the display (125% scaling: 1180 → 1475 pixels).
+        ClientSize = Dwm.FitScreen(LogicalToDeviceUnits(new Size(1180, 760)));
+        MinimumSize = Dwm.FitScreen(LogicalToDeviceUnits(new Size(900, 620)));
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Background;
         Host = new WebHost("phone.html", onCommand);

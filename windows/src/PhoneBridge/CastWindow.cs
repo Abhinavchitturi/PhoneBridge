@@ -20,7 +20,7 @@ internal sealed class CastWindow : Form
         Icon = icon;
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScaleDimensions = new SizeF(96F, 96F);
-        ClientSize = new Size(380, 820);
+        ClientSize = Dwm.FitScreen(LogicalToDeviceUnits(new Size(380, 820)));
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.Black;
         _host = new WebHost("cast.html", (cmd, m) =>
