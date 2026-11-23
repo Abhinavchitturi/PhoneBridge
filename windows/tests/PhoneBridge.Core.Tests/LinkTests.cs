@@ -181,14 +181,18 @@ public sealed class LinkTests : IDisposable
         var phone = new FakePhone { Admit = FakePhone.AdmitKind.Pair };
         using var link = Link(Store(), phone);
         var cancelled = new TaskCompletionSource();
+        var asking = new TaskCompletionSource();
         link.AskPairing = async (_, _, ct) =>
         {
+            asking.TrySetResult();
             try { await Task.Delay(Timeout.Infinite, ct); }
             catch (OperationCanceledException) { cancelled.TrySetResult(); }
             return false;
         };
         link.Start();
-        await Within(WaitFor(() => phone.PairingCode != null));
+        // Wait for the prompt itself, not just the phone's code: on a slow machine the phone can show its code before
+        // this side has asked, and then there'd be no prompt yet for the reconnect to cancel.
+        await Within(asking.Task.ContinueWith(_ => true));
         phone.Dispose(); // phone stops listening; its socket goes too
         link.Reconnect();
         await Within(cancelled.Task.ContinueWith(_ => true));
