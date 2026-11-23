@@ -44,6 +44,10 @@ internal sealed class TrayApp : ApplicationContext
     private bool _charging;
     private bool _ringing;
     private PairDialog? _pairDialog;
+    /// <summary>The window (Mac-style design); null when the WebView2 runtime is missing, then the menu does everything.</summary>
+    private readonly MainWindow? _window;
+    /// <summary>A pairing request shown in the window: (phone, code, the answer).</summary>
+    private (string Name, string Code, TaskCompletionSource<bool> Answer)? _pairing;
     private DateTime _lastMacOnlyHint = DateTime.MinValue;
 
     private TrayApp(LinkStore store)
@@ -54,13 +58,24 @@ internal sealed class TrayApp : ApplicationContext
         _icon = LoadIcon();
         _iconOff = Dimmed(_icon);
 
+        if (MainWindow.RuntimeAvailable)
+        {
+            _window = new MainWindow(_icon);
+            _window.Command += (cmd, m) => OnWindowCommand(cmd, m);
+        }
+        else
+        {
+            Log.Write("WebView2 runtime not found: menu-only mode");
+        }
+
         _tray = new NotifyIcon { Icon = _iconOff, Visible = true, Text = "PhoneBridge" };
         _tray.ContextMenuStrip = BuildMenu();
         _tray.MouseUp += (_, e) =>
         {
-            // Left click opens the same menu (WinForms only does that for right click).
-            if (e.Button == MouseButtons.Left)
-                typeof(NotifyIcon).GetMethod("ShowContextMenu", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(_tray, null);
+            if (e.Button != MouseButtons.Left) return;
+            // Left click opens the window, like clicking PhoneBridge in the Dock; without it, the menu.
+            if (_window != null) _window.Toggle();
+            else typeof(NotifyIcon).GetMethod("ShowContextMenu", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(_tray, null);
         };
 
         _toasts = new Toasts(_tray);
@@ -97,6 +112,8 @@ internal sealed class TrayApp : ApplicationContext
 
         Refresh();
         _link.Start();
+        // Not paired yet: open the window so the first-run "Looking for nearby phones" screen is right there.
+        if (_window != null && store.TrustedPhone == null) _window.ShowAndActivate();
         Log.Write($"started {Application.ProductVersion}");
     }
 
@@ -146,19 +163,39 @@ internal sealed class TrayApp : ApplicationContext
             catch (Exception e) { Log.Write("autostart write: " + e.Message); }
         };
 
-        m.Items.AddRange([
-            _statusItem, _noteItem, _batteryItem,
-            new ToolStripSeparator(),
-            _sendFiles, _ring,
-            new ToolStripMenuItem("Open received files", null, (_, _) => Shell.Reveal(_transfers.Folder)),
-            new ToolStripSeparator(),
-            _showNotifs, _syncClip, _autoStart,
-            new ToolStripSeparator(),
-            new ToolStripMenuItem("Reconnect", null, (_, _) => _link.Reconnect()),
-            _forget,
-            new ToolStripMenuItem($"About PhoneBridge {Application.ProductVersion.Split('+')[0]}", null, (_, _) => Shell.Open(Repo)),
-            new ToolStripMenuItem("Quit PhoneBridge", null, (_, _) => Quit()),
-        ]);
+        if (_window != null)
+        {
+            // Like the Mac's menu-bar menu: status, then the quick actions; settings live in the window.
+            var open = new ToolStripMenuItem("Open PhoneBridge", null, (_, _) => _window.ShowAndActivate());
+            open.Font = new Font(open.Font, FontStyle.Bold);
+            m.Items.AddRange([
+                _statusItem, _noteItem, _batteryItem,
+                new ToolStripSeparator(),
+                open,
+                new ToolStripSeparator(),
+                _ring, _sendFiles,
+                new ToolStripMenuItem("Open received files", null, (_, _) => Shell.Reveal(_transfers.Folder)),
+                new ToolStripSeparator(),
+                new ToolStripMenuItem("Quit PhoneBridge", null, (_, _) => Quit()),
+            ]);
+        }
+        else
+        {
+            m.Items.AddRange([
+                _statusItem, _noteItem, _batteryItem,
+                new ToolStripSeparator(),
+                _sendFiles, _ring,
+                new ToolStripMenuItem("Open received files", null, (_, _) => Shell.Reveal(_transfers.Folder)),
+                new ToolStripSeparator(),
+                _showNotifs, _syncClip, _autoStart,
+                new ToolStripSeparator(),
+                new ToolStripMenuItem("Reconnect", null, (_, _) => _link.Reconnect()),
+                _forget,
+                new ToolStripMenuItem($"About PhoneBridge {Version}", null, (_, _) => Shell.Open(Repo)),
+                new ToolStripMenuItem("Quit PhoneBridge", null, (_, _) => Quit()),
+            ]);
+        }
+        DarkMenuRenderer.Apply(m, checks: _window == null);
         m.Opening += (_, _) => Refresh();
         return m;
     }
@@ -172,9 +209,10 @@ internal sealed class TrayApp : ApplicationContext
         _batteryItem.Text = $"Battery {_battery}%{(_charging ? " · charging" : "")}";
         _sendFiles.Enabled = _connected;
         _ring.Enabled = _connected;
-        _ring.Text = _ringing ? "Stop ringing my phone" : "Ring my phone";
+        _ring.Text = _ringing ? "Stop ringing" : "Ring phone";
         _forget.Enabled = _link?.IsPaired ?? _store.TrustedPhone != null;
         _tray.Icon = _connected ? _icon : _iconOff;
+        PushState();
         var tip = "PhoneBridge — " + _status + (_connected && _battery != null ? $" · {_battery}%" : "");
         _tray.Text = tip.Length > 127 ? tip[..127] : tip;
     }
@@ -192,6 +230,7 @@ internal sealed class TrayApp : ApplicationContext
                 _transfers.Abort();
                 _status = "Looking for your phone…";
                 ClosePairDialog();
+                if (_pairing is { } p) { _pairing = null; p.Answer.TrySetResult(false); }
                 break;
             case LinkState.Pairing:
                 _connected = false;
@@ -243,6 +282,23 @@ internal sealed class TrayApp : ApplicationContext
     private Task<bool> AskPairing(string code, string name, CancellationToken gone)
     {
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (_window != null)
+        {
+            // In the window: "Found <phone>", the code, Cancel / Pair — the Mac's discovery screen plus its pairing alert.
+            _ui.Post(_ =>
+            {
+                _pairing?.Answer.TrySetResult(false);
+                _pairing = (name, code, tcs);
+                Refresh();
+                _window.ShowAndActivate();
+            }, null);
+            gone.Register(() =>
+            {
+                tcs.TrySetResult(false);
+                _ui.Post(_ => EndPairing(tcs), null);
+            });
+            return tcs.Task;
+        }
         _ui.Post(_ =>
         {
             ClosePairDialog();
@@ -264,6 +320,21 @@ internal sealed class TrayApp : ApplicationContext
         return tcs.Task;
     }
 
+    private void EndPairing(TaskCompletionSource<bool> which)
+    {
+        if (_pairing?.Answer != which) return;
+        _pairing = null;
+        Refresh();
+    }
+
+    private void AnswerPairing(bool ok)
+    {
+        if (_pairing is not { } p) return;
+        _pairing = null;
+        p.Answer.TrySetResult(ok);
+        Refresh();
+    }
+
     private void ClosePairDialog()
     {
         var d = _pairDialog;
@@ -271,14 +342,113 @@ internal sealed class TrayApp : ApplicationContext
         if (d != null && !d.IsDisposed) d.Close();
     }
 
-    private void Forget()
+    private void Forget(bool confirmed = false)
     {
+        if (confirmed)
+        {
+            _link.Forget();
+            _phoneName = "your phone";
+            Refresh();
+            return;
+        }
         var ok = MessageBox.Show($"Forget {_phoneName}? You'll need to pair again (on the phone: Computers → Pair a new computer).",
             "PhoneBridge", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
         if (ok != DialogResult.OK) return;
         _link.Forget();
         _phoneName = "your phone";
         Refresh();
+    }
+
+    // MARK: The window
+
+    private static string Version => Application.ProductVersion.Split('+')[0];
+
+    private void PushState()
+    {
+        if (_window == null) return;
+        _window.PushState(new JsonObject
+        {
+            ["view"] = _connected ? "connected" : "searching",
+            ["status"] = _status,
+            ["note"] = _note,
+            ["phoneName"] = _connected || _store.TrustedPhone != null ? _phoneName : "",
+            ["battery"] = _connected ? _battery : null,
+            ["charging"] = _charging,
+            ["ringing"] = _ringing,
+            ["paired"] = _link?.IsPaired ?? _store.TrustedPhone != null,
+            ["pairing"] = _pairing is { } p ? new JsonObject { ["name"] = p.Name, ["code"] = p.Code } : null,
+            ["settings"] = new JsonObject
+            {
+                ["notifications"] = _showNotifs.Checked,
+                ["clipboard"] = _syncClip.Checked,
+                ["autostart"] = _autoStart.Checked,
+            },
+            ["version"] = Version,
+        });
+    }
+
+    private void OnWindowCommand(string cmd, JsonObject m)
+    {
+        switch (cmd)
+        {
+            case "ready": PushState(); break;
+            case "pair-ok": AnswerPairing(true); break;
+            case "pair-cancel": AnswerPairing(false); break;
+            case "ring": _ = _link.SendAsync(_ringing ? "ring_stop" : "ring"); break;
+            case "send-files": PickFiles(); break;
+            case "send-clipboard": SendClipboard(); break;
+            case "open-downloads": Shell.Reveal(_transfers.Folder); break;
+            case "reconnect": _link.Reconnect(); break;
+            case "forget": Forget(confirmed: true); break;
+            case "about": Shell.Open(Repo); break;
+            case "open-log": Shell.Reveal(Path.Combine(Log.Dir, "phonebridge.log")); break;
+            case "quit": Quit(); break;
+            case "drop":
+                if (m["paths"] is JsonArray paths)
+                {
+                    var files = paths.Select(p => p?.GetValue<string>()).OfType<string>().Where(File.Exists).ToArray();
+                    if (files.Length > 0) _ = SendFiles(files);
+                }
+                break;
+            case "set":
+                var on = m["value"] is JsonValue v && v.TryGetValue<bool>(out var b) && b;
+                switch (PhoneLink.Str(m, "key"))
+                {
+                    case "notifications": _showNotifs.Checked = on; break;
+                    case "clipboard": _syncClip.Checked = on; break;
+                    case "autostart": _autoStart.Checked = on; break;
+                }
+                Refresh();
+                break;
+        }
+    }
+
+    /// <summary>"Send clipboard": pushes what's on the clipboard now, even with clipboard sync off.</summary>
+    private void SendClipboard()
+    {
+        try
+        {
+            if (Clipboard.ContainsText())
+            {
+                _ = _link.SendAsync("clip", ("text", Clipboard.GetText()));
+                _toasts.Info("Clipboard sent", "Paste it on your phone");
+            }
+            else if (Clipboard.ContainsImage() && Clipboard.GetImage() is { } img)
+            {
+                using (img)
+                using (var ms = new MemoryStream())
+                {
+                    img.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+                    _ = _link.SendAsync("clip_image", ("png", Convert.ToBase64String(ms.ToArray())));
+                }
+                _toasts.Info("Image sent", "Paste it on your phone");
+            }
+            else
+            {
+                _toasts.Info("Nothing to send", "Copy some text or an image first");
+            }
+        }
+        catch (System.Runtime.InteropServices.ExternalException) { }
     }
 
     // MARK: Messages from the phone
@@ -522,6 +692,7 @@ internal sealed class TrayApp : ApplicationContext
     {
         _link.Dispose();
         _tray.Visible = false;
+        _window?.Dispose();
         _clip.Dispose();
         ExitThread();
     }

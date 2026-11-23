@@ -1,0 +1,580 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PhoneBridge</title>
+<!--
+  The PhoneBridge window on Windows, drawn like the Mac app's main window (mac/Sources/Views.swift MainView,
+  Discovery.swift DiscoveryView, Minimal.swift tiles and pills, PhoneDesign.swift Theme) in its default Midnight theme.
+  Hosted in WebView2 by MainWindow.cs; state comes in with chrome.webview messages, commands go back the same way.
+  Open it in any browser with ?demo=searching|pairing|connected|settings to see it without the app.
+-->
+<style>
+  :root {
+    --bg: #0B0B0D;
+    --accent: #F5F5F7;
+    --accent2: #A1A1A6;
+    --on-accent: #0B0B0D;
+    --text: #F5F5F7;
+    --secondary: rgba(235, 235, 245, 0.6);
+    --tertiary: rgba(235, 235, 245, 0.32);
+    --card: rgba(255, 255, 255, 0.055);
+    --card-hover: rgba(255, 255, 255, 0.09);
+    --stroke: rgba(255, 255, 255, 0.09);
+    --green: rgb(51, 204, 133);
+    --red: rgb(247, 87, 102);
+    --orange: #FF9F0A;
+    /* Apple's system and serif faces where they exist; their closest Windows counterparts otherwise. */
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    --font-rounded: ui-rounded, "SF Pro Rounded", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --font-serif: "New York", ui-serif, "Iowan Old Style", Georgia, "Cambria", serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--text); font: 13px/1.35 var(--font);
+    -webkit-font-smoothing: antialiased; user-select: none; overflow: hidden;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: default; }
+  button:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 2px; }
+  svg { display: block; }
+  .ico { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+  .view { position: absolute; inset: 0; display: none; }
+  body[data-view="searching"] #searching, body[data-view="pairing"] #searching,
+  body[data-view="connected"] #connected, body[data-view="settings"] #settings { display: block; }
+
+  .scroll { height: 100%; overflow-y: auto; scrollbar-width: none; }
+  .scroll::-webkit-scrollbar { display: none; }
+  .stack { display: flex; flex-direction: column; gap: 16px; padding: 20px; }
+
+  /* Soft rounded surface with a hairline border (Theme.card / .card()). */
+  .card { background: var(--card); border: 1px solid var(--stroke); border-radius: 18px; }
+
+  /* Capsule buttons (PillButtonStyle). */
+  .pill {
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+    font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: transform .28s cubic-bezier(.3, 1.6, .5, 1), opacity .15s, background .12s;
+  }
+  .pill:hover { background: rgba(255, 255, 255, 0.11); }
+  .pill:active { transform: scale(.95); opacity: .75; }
+  .pill.prominent { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+  .pill.destructive { background: color-mix(in srgb, var(--red) 16%, transparent); color: var(--red); border-color: transparent; }
+  .pill.wide { width: 100%; }
+  .pill .ico { font-size: 15px; }
+
+  .caption { font-size: 11px; color: var(--secondary); line-height: 1.4; }
+
+  /* ---------- Searching / pairing (DiscoveryView) ---------- */
+  #searching .wrap { height: 100%; display: flex; flex-direction: column; align-items: center; padding: 0 24px; }
+  .big-serif { font-family: var(--font-serif); font-size: 34px; font-weight: 400; line-height: 1.12; text-align: center; letter-spacing: -0.2px; }
+  #orb { width: 330px; height: 330px; margin: 6px 0; flex: none; }
+  body[data-view="pairing"] #orb { width: 220px; height: 220px; }
+  .hint { font-size: 14px; color: var(--secondary); text-align: center; max-width: 340px; line-height: 1.4; }
+  .spacer { flex: 1 1 24px; min-height: 24px; }
+  .trouble { width: 100%; max-width: 380px; display: flex; flex-direction: column; align-items: center; gap: 12px; padding-bottom: 26px; }
+  .trouble p { font-size: 13px; color: var(--secondary); }
+  .trouble .row { display: flex; gap: 10px; width: 100%; }
+  .bigbtn {
+    flex: 1; height: 42px; border-radius: 14px; display: flex; align-items: center; justify-content: center; gap: 8px;
+    font-size: 13.5px; font-weight: 600; background: var(--card); border: 1px solid var(--stroke); transition: background .12s, transform .2s;
+  }
+  .bigbtn:hover { background: var(--card-hover); }
+  .bigbtn:active { transform: scale(.97); }
+  .bigbtn .ico { font-size: 15px; }
+
+  .code {
+    display: none; margin: 4px 0 14px; padding: 14px 26px; border-radius: 20px;
+    font: 600 40px/1 var(--font-rounded); letter-spacing: 6px; font-variant-numeric: tabular-nums;
+  }
+  .code span { opacity: .35; margin: 0 4px; letter-spacing: 0; }
+  .pair-actions { display: none; gap: 10px; margin-top: 18px; }
+  .pair-actions .pill { min-width: 120px; padding: 10px 18px; }
+  body[data-view="pairing"] .code { display: block; }
+  body[data-view="pairing"] .pair-actions { display: flex; }
+  body[data-view="pairing"] .trouble { display: none; }
+
+  /* ---------- Connected (MainView) ---------- */
+  .brand { display: flex; flex-direction: column; align-items: center; gap: 10px; padding-top: 8px; }
+  .brand .mark {
+    width: 68px; height: 68px; border-radius: 20px; display: grid; place-items: center;
+    background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  .brand h1 { font: 400 28px/1.1 var(--font-serif); }
+  .status { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--secondary); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--orange); flex: none; }
+  .dot.on { background: var(--green); }
+
+  .hero { position: relative; height: 190px; border-radius: 22px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.1); }
+  .hero canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .hero::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 96px; background: linear-gradient(transparent, rgba(0, 0, 0, .6)); }
+  .hero .label { position: absolute; left: 18px; bottom: 18px; z-index: 1; display: flex; flex-direction: column; gap: 3px; }
+  .hero .name { font: 400 22px/1.15 var(--font-serif); }
+  .hero .line { font-size: 12px; color: rgba(255, 255, 255, .7); }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  /* ActionTile: round icon above a short label, on a soft card. */
+  .tile {
+    display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 6px;
+    border-radius: 18px; background: var(--card); border: 1px solid var(--stroke);
+    transition: background .12s, transform .12s;
+  }
+  .tile:hover { background: var(--card-hover); transform: scale(1.02); }
+  .tile:active { transform: scale(.96); }
+  .tile .disc {
+    width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; font-size: 20px;
+    color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+  .tile.filled .disc { background: var(--accent); color: var(--on-accent); }
+  .tile span { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .tile:disabled { opacity: .4; transform: none; }
+
+  .note-card { display: none; padding: 12px 14px; font-size: 12.5px; color: var(--secondary); line-height: 1.4; }
+  .note-card.show { display: block; }
+
+  /* Drop files anywhere on the window. */
+  .drop {
+    position: absolute; inset: 12px; z-index: 5; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    border-radius: 22px; border: 1.5px dashed var(--accent); background: color-mix(in srgb, var(--bg) 82%, var(--accent) 18%);
+    color: var(--accent); font-weight: 600; font-size: 14px; backdrop-filter: blur(6px); pointer-events: none;
+  }
+  .drop .ico { font-size: 28px; }
+  body.dragging .drop { display: flex; }
+
+  /* ---------- Settings ---------- */
+  .bar { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 16px 20px 8px; }
+  .bar h2 { font-size: 17px; font-weight: 600; }
+  #settings .scroll { height: calc(100% - 58px); }
+  .section { padding: 16px; border-radius: 20px; display: flex; flex-direction: column; gap: 10px; }
+  .section-head { display: flex; align-items: center; gap: 10px; }
+  .section-head .badge {
+    width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-size: 15px;
+    background: var(--accent); color: var(--on-accent);
+  }
+  .section-head h3 { font: 700 16px/1.2 var(--font-rounded); }
+  .toggle { display: flex; align-items: center; gap: 12px; padding: 4px 0; }
+  .toggle .text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+  .toggle .text b { font-weight: 500; font-size: 13px; }
+  .switch {
+    position: relative; width: 38px; height: 22px; border-radius: 999px; flex: none;
+    background: rgba(255, 255, 255, 0.16); transition: background .2s;
+  }
+  .switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .4); transition: transform .22s cubic-bezier(.3, 1.4, .5, 1);
+  }
+  .switch[aria-checked="true"] { background: var(--green); }
+  .switch[aria-checked="true"]::after { transform: translateX(16px); }
+  .kv { display: flex; justify-content: space-between; font-size: 13px; padding: 2px 0; }
+  .kv span:last-child { color: var(--secondary); }
+  .row-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+  hr { border: 0; height: 1px; background: var(--stroke); margin: 2px 0; }
+
+  /* Confirmation sheet. */
+  .sheet-bg {
+    position: absolute; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, .45); backdrop-filter: blur(8px);
+  }
+  .sheet-bg.show { display: flex; animation: fade .15s ease-out; }
+  .sheet {
+    width: 340px; padding: 22px; border-radius: 22px; background: #1C1C1F; border: 1px solid rgba(255, 255, 255, .12);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .5); display: flex; flex-direction: column; gap: 10px; animation: pop .22s cubic-bezier(.3, 1.4, .5, 1);
+  }
+  .sheet h4 { font-size: 15px; font-weight: 600; }
+  .sheet p { font-size: 12.5px; color: var(--secondary); line-height: 1.4; }
+  .sheet .row-btns { justify-content: flex-end; margin-top: 8px; }
+  @keyframes fade { from { opacity: 0; } }
+  @keyframes pop { from { transform: scale(.94); opacity: 0; } }
+
+  .demo { position: fixed; right: 8px; top: 8px; z-index: 20; display: none; gap: 4px; }
+  .demo.show { display: flex; }
+  .demo button { font-size: 10px; padding: 3px 7px; border-radius: 6px; background: #333; }
+</style>
+</head>
+<body data-view="searching">
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4M7 10H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1"/></symbol>
+    <symbol id="i-bell-waves" viewBox="0 0 24 24"><path d="M17 9.5a5 5 0 0 0-10 0c0 5.5-2 7-2 7h14s-2-1.5-2-7M10.3 19.5a2 2 0 0 0 3.4 0M2.8 8.5a9 9 0 0 1 2.3-4.2M21.2 8.5a9 9 0 0 0-2.3-4.2"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 9.5a6 6 0 0 0-12 0c0 6-2.5 7.5-2.5 7.5h17S18 15.5 18 9.5M10.3 20.5a2 2 0 0 0 3.4 0"/></symbol>
+    <symbol id="i-bell-off" viewBox="0 0 24 24"><path d="M8.5 4.6A6 6 0 0 1 18 9.5c0 2.6.5 4.4 1 5.5M6 9.5c0 6-2.5 7.5-2.5 7.5H17M10.3 20.5a2 2 0 0 0 3.4 0M3 3l18 18"/></symbol>
+    <symbol id="i-clipboard" viewBox="0 0 24 24"><path d="M9 4.5H7a2 2 0 0 0-2 2V19a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V6.5a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="3.2" rx="1.2"/><path d="M12 10v7M9 14l3 3 3-3"/></symbol>
+    <symbol id="i-tray" viewBox="0 0 24 24"><path d="M12 3v11M8 10l4 4 4-4M4 15v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11.5A8 8 0 0 0 6 6.6L4 8.5M4 4v4.5h4.5M4 12.5A8 8 0 0 0 18 17.4l2-1.9M20 20v-4.5h-4.5"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M14.5 18l-6-6 6-6"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.6"/><path d="M11 18.5h2"/></symbol>
+    <symbol id="i-phone-slash" viewBox="0 0 24 24"><path d="M17 13V5.1A2.6 2.6 0 0 0 14.4 2.5H9.6c-.9 0-1.6.4-2.1 1M7 7v11.9a2.6 2.6 0 0 0 2.6 2.6h4.8c1 0 1.8-.5 2.3-1.3M3 3l18 18"/></symbol>
+    <symbol id="i-laptop" viewBox="0 0 24 24"><rect x="4.5" y="5" width="15" height="10" rx="1.5"/><path d="M2.5 19h19"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.1"/></symbol>
+    <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v8M6.4 6.6a8 8 0 1 0 11.2 0"/></symbol>
+  </defs>
+</svg>
+
+<!-- Searching, and pairing (same screen: "Found <phone>" plus the code) -->
+<section class="view" id="searching">
+  <div class="wrap">
+    <div class="spacer"></div>
+    <div class="big-serif" id="search-title">Looking for<br>nearby phones</div>
+    <canvas id="orb" width="660" height="660"></canvas>
+    <div class="code card" id="code" aria-live="polite"></div>
+    <p class="hint" id="search-hint">Open PhoneBridge on your phone. Both need to be on the same Wi-Fi.</p>
+    <div class="pair-actions">
+      <button class="pill" data-cmd="pair-cancel">Cancel</button>
+      <button class="pill prominent" data-cmd="pair-ok">Pair</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="trouble">
+      <p>Having trouble finding your phone?</p>
+      <div class="row">
+        <button class="bigbtn" data-cmd="reconnect"><svg class="ico"><use href="#i-refresh"/></svg>Search again</button>
+        <button class="bigbtn" id="forget-searching" data-cmd="forget-ask"><svg class="ico"><use href="#i-phone-slash"/></svg>Forget this phone</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Connected -->
+<section class="view" id="connected">
+  <div class="scroll"><div class="stack">
+    <header class="brand">
+      <div class="mark"><svg width="34" height="34" viewBox="0 0 28 28" aria-hidden="true"><path d="M5 17.6Q14 -0.4 23 17.6" fill="none" stroke="#F5F5F7" stroke-width="2.4" stroke-linecap="round"/><circle cx="5" cy="17.6" r="3" fill="#F5F5F7"/><circle cx="23" cy="17.6" r="3" fill="#F5F5F7"/></svg></div>
+      <h1>PhoneBridge</h1>
+      <div class="status"><i class="dot on"></i><span class="status-text">Connected</span></div>
+    </header>
+    <div class="hero">
+      <canvas id="hero"></canvas>
+      <div class="label"><div class="name" id="hero-name">Phone</div><div class="line" id="hero-line">Connected</div></div>
+    </div>
+    <div class="grid">
+      <button class="tile filled" data-cmd="send-files"><div class="disc"><svg class="ico"><use href="#i-share"/></svg></div><span>Send file</span></button>
+      <button class="tile" id="ring" data-cmd="ring"><div class="disc"><svg class="ico"><use href="#i-bell-waves"/></svg></div><span>Ring phone</span></button>
+      <button class="tile" data-cmd="send-clipboard"><div class="disc"><svg class="ico"><use href="#i-clipboard"/></svg></div><span>Send clipboard</span></button>
+      <button class="tile" data-cmd="open-downloads"><div class="disc"><svg class="ico"><use href="#i-tray"/></svg></div><span>Received</span></button>
+      <button class="tile" id="notif-tile" data-cmd="toggle-notifications"><div class="disc"><svg class="ico"><use href="#i-bell"/></svg></div><span>Notifications</span></button>
+      <button class="tile" data-cmd="reconnect"><div class="disc"><svg class="ico"><use href="#i-refresh"/></svg></div><span>Reconnect</span></button>
+    </div>
+    <button class="pill wide" data-cmd="settings"><svg class="ico"><use href="#i-sliders"/></svg>All settings</button>
+    <p class="caption">Closing this window keeps PhoneBridge running in the notification area. Drop files on this window to send them to your phone.</p>
+  </div></div>
+  <div class="drop"><svg class="ico"><use href="#i-share"/></svg>Drop files to send to phone</div>
+</section>
+
+<!-- Settings, right in the window (like the Mac's settings pane) -->
+<section class="view" id="settings">
+  <div class="bar">
+    <div><button class="pill" data-cmd="back"><svg class="ico"><use href="#i-chevron"/></svg>Back</button></div>
+    <h2>Settings</h2>
+    <div></div>
+  </div>
+  <div class="scroll"><div class="stack" style="padding-top:8px">
+    <div class="section card">
+      <div class="section-head"><div class="badge"><svg class="ico"><use href="#i-phone"/></svg></div><h3>Phone</h3></div>
+      <div class="kv"><span>Name</span><span id="s-name">—</span></div>
+      <div class="kv"><span>Status</span><span id="s-status">—</span></div>
+      <div class="kv" id="s-battery-row"><span>Battery</span><span id="s-battery">—</span></div>
+      <p class="caption">To use the phone with another computer, or to switch back here, open PhoneBridge on the phone → Computers.</p>
+      <div class="row-btns"><button class="pill destructive" id="forget-settings" data-cmd="forget-ask"><svg class="ico"><use href="#i-phone-slash"/></svg>Forget this phone</button></div>
+    </div>
+    <div class="section card">
+      <div class="section-head"><div class="badge"><svg class="ico"><use href="#i-laptop"/></svg></div><h3>On this PC</h3></div>
+      <div class="toggle">
+        <div class="text"><b>Show phone notifications</b><span class="caption">As Windows notifications, with a reply box for chat apps.</span></div>
+        <button class="switch" role="switch" aria-checked="true" data-setting="notifications" aria-label="Show phone notifications"></button>
+      </div>
+      <hr>
+      <div class="toggle">
+        <div class="text"><b>Sync clipboard</b><span class="caption">Text and images you copy go to the phone, and back. Passwords from password managers are skipped.</span></div>
+        <button class="switch" role="switch" aria-checked="true" data-setting="clipboard" aria-label="Sync clipboard"></button>
+      </div>
+      <hr>
+      <div class="toggle">
+        <div class="text"><b>Start with Windows</b><span class="caption">PhoneBridge waits in the notification area and connects by itself.</span></div>
+        <button class="switch" role="switch" aria-checked="false" data-setting="autostart" aria-label="Start with Windows"></button>
+      </div>
+    </div>
+    <div class="section card">
+      <div class="section-head"><div class="badge"><svg class="ico"><use href="#i-info"/></svg></div><h3>About</h3></div>
+      <div class="kv"><span>PhoneBridge for Windows</span><span id="s-version">—</span></div>
+      <p class="caption">Free and open source. Everything stays between your phone and this PC: no account, no cloud.</p>
+      <div class="row-btns">
+        <button class="pill" data-cmd="about">Project page</button>
+        <button class="pill" data-cmd="open-log">Open log</button>
+        <button class="pill" data-cmd="quit"><svg class="ico"><use href="#i-power"/></svg>Quit PhoneBridge</button>
+      </div>
+    </div>
+  </div></div>
+</section>
+
+<div class="sheet-bg" id="forget-sheet">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="forget-title">
+    <h4 id="forget-title">Forget this phone?</h4>
+    <p>You'll need to pair again: on the phone, open Computers → Pair a new computer.</p>
+    <div class="row-btns">
+      <button class="pill" data-cmd="forget-cancel">Cancel</button>
+      <button class="pill destructive" data-cmd="forget">Forget</button>
+    </div>
+  </div>
+</div>
+
+<div class="demo" id="demo"></div>
+
+<script>
+"use strict";
+const host = window.chrome && window.chrome.webview;
+const $ = (s) => document.querySelector(s);
+let state = {
+  view: "searching", status: "Looking for your phone…", note: null, phoneName: "", battery: null, charging: false,
+  ringing: false, paired: false, pairing: null, settings: { notifications: true, clipboard: true, autostart: false }, version: "",
+};
+let showSettings = false;
+
+function send(cmd, extra) { if (host) host.postMessage(Object.assign({ cmd }, extra || {})); }
+
+// ---------- Rendering ----------
+function render() {
+  const connected = state.view === "connected";
+  const view = state.pairing ? "pairing" : connected ? (showSettings ? "settings" : "connected") : "searching";
+  document.body.dataset.view = view;
+
+  // Searching / pairing
+  $("#search-title").innerHTML = state.pairing ? "Found<br>" + esc(state.pairing.name) : "Looking for<br>nearby phones";
+  $("#search-hint").textContent = state.pairing
+    ? "Check that the 6-digit code on your phone matches the one shown here, then tap Pair on both."
+    : state.note || "Open PhoneBridge on your phone. Both need to be on the same Wi-Fi.";
+  const code = state.pairing ? state.pairing.code : "";
+  $("#code").innerHTML = code.length === 6 ? esc(code.slice(0, 3)) + "<span>·</span>" + esc(code.slice(3)) : esc(code);
+  $("#code").setAttribute("aria-label", "Pairing code " + code.split("").join(" "));
+  $("#forget-searching").style.display = state.paired ? "" : "none";
+
+  // Connected
+  document.querySelectorAll(".status-text").forEach((e) => (e.textContent = state.status));
+  $("#hero-name").textContent = state.phoneName || "Your phone";
+  const parts = ["Connected"];
+  if (state.battery != null) parts.push(state.battery + "%" + (state.charging ? " · charging" : ""));
+  $("#hero-line").textContent = parts.join(" · ");
+  const ring = $("#ring");
+  ring.classList.toggle("filled", state.ringing);
+  ring.querySelector("span").textContent = state.ringing ? "Stop ring" : "Ring phone";
+  const nt = $("#notif-tile");
+  nt.classList.toggle("filled", false);
+  nt.querySelector("use").setAttribute("href", state.settings.notifications ? "#i-bell" : "#i-bell-off");
+  nt.querySelector("span").textContent = state.settings.notifications ? "Notifications" : "Muted";
+
+  // Settings
+  $("#s-name").textContent = state.phoneName || "—";
+  $("#s-status").textContent = state.status;
+  $("#s-battery-row").style.display = state.battery != null ? "" : "none";
+  $("#s-battery").textContent = state.battery != null ? state.battery + "%" + (state.charging ? " · charging" : "") : "";
+  $("#s-version").textContent = state.version;
+  $("#forget-settings").style.display = state.paired ? "" : "none";
+  document.querySelectorAll(".switch").forEach((s) => s.setAttribute("aria-checked", String(!!state.settings[s.dataset.setting])));
+  $("#forget-title").textContent = "Forget " + (state.phoneName || "this phone") + "?";
+}
+
+function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+// ---------- Commands ----------
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-cmd], [data-setting]");
+  if (!b) return;
+  if (b.dataset.setting) {
+    const key = b.dataset.setting;
+    state.settings[key] = !state.settings[key];
+    render();
+    send("set", { key, value: state.settings[key] });
+    return;
+  }
+  const cmd = b.dataset.cmd;
+  switch (cmd) {
+    case "settings": showSettings = true; render(); return;
+    case "back": showSettings = false; render(); return;
+    case "forget-ask": $("#forget-sheet").classList.add("show"); return;
+    case "forget-cancel": $("#forget-sheet").classList.remove("show"); return;
+    case "forget": $("#forget-sheet").classList.remove("show"); showSettings = false; break;
+    case "toggle-notifications":
+      state.settings.notifications = !state.settings.notifications; render();
+      send("set", { key: "notifications", value: state.settings.notifications }); return;
+    case "ring": state.ringing = !state.ringing; render(); break; // the phone's ring_state confirms it
+  }
+  send(cmd);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    if ($("#forget-sheet").classList.contains("show")) $("#forget-sheet").classList.remove("show");
+    else if (state.pairing) send("pair-cancel");
+    else if (showSettings) { showSettings = false; render(); }
+    else send("hide");
+  }
+  if (e.key === "Enter" && state.pairing && !e.target.closest("button")) send("pair-ok");
+});
+document.addEventListener("contextmenu", (e) => e.preventDefault());
+
+// Files dropped on the window go to the phone. WebView2 hands the host their real paths.
+let dragDepth = 0;
+const hasFiles = (e) => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files");
+document.addEventListener("dragenter", (e) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; if (state.view === "connected") document.body.classList.add("dragging"); });
+document.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove("dragging"); } });
+document.addEventListener("dragover", (e) => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = state.view === "connected" ? "copy" : "none"; } });
+document.addEventListener("drop", (e) => {
+  e.preventDefault(); dragDepth = 0; document.body.classList.remove("dragging");
+  if (state.view !== "connected" || !e.dataTransfer.files.length) return;
+  if (host && host.postMessageWithAdditionalObjects) host.postMessageWithAdditionalObjects({ cmd: "drop" }, e.dataTransfer.files);
+});
+
+if (host) host.addEventListener("message", (e) => {
+  const m = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
+  if (m.type === "state") {
+    const wasPairing = !!state.pairing;
+    state = Object.assign(state, m.state);
+    if (state.view !== "connected") showSettings = false;
+    if (m.state.showSettings) showSettings = true;
+    if (!wasPairing && state.pairing) setTimeout(() => $(".pair-actions .prominent").focus(), 50);
+    render();
+  }
+});
+
+// ---------- Drawing (ported from MotifArt.arch, the Midnight hero scene, and OrbView) ----------
+const hash = (x) => { const v = Math.sin(x * 12.9898) * 43758.5453; return v - Math.floor(v); };
+
+function arch(ctx, cx, cy, w, color, line) {
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = line; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(cx - w / 2, cy + w * 0.3); ctx.quadraticCurveTo(cx, cy - w * 0.7, cx + w / 2, cy + w * 0.3); ctx.stroke();
+  for (const sx of [-w / 2, w / 2]) { ctx.beginPath(); ctx.arc(cx + sx, cy + w * 0.3, line * 1.25, 0, Math.PI * 2); ctx.fill(); }
+}
+function glyph(ctx, size, color) {
+  const k = size / 28, c = size / 2;
+  arch(ctx, c, c - 1.8 * k, 18 * k, color, 2.4 * k);
+}
+function fitCanvas(cv) {
+  const r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+  const w = Math.max(1, Math.round(r.width * d)), h = Math.max(1, Math.round(r.height * d));
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  const ctx = cv.getContext("2d"); ctx.setTransform(d, 0, 0, d, 0, 0);
+  return [ctx, r.width, r.height];
+}
+function circle(ctx, x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); }
+
+function drawHero(t) {
+  const [ctx, w, h] = fitCanvas($("#hero"));
+  ctx.fillStyle = "#0B0B0D"; ctx.fillRect(0, 0, w, h);
+  const glow = (x, y, r, a, white) => {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `rgba(${white},${white},${white},${a})`); g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+  };
+  glow(w * (0.3 + 0.12 * Math.sin(t * 0.2)), h * 0.35, w * 0.45, 0.08, 255);
+  glow(w * (0.72 + 0.1 * Math.cos(t * 0.17)), h * 0.6, w * 0.4, 0.06, 179);
+  for (let i = 0; i < 46; i++) {
+    const tw = 0.3 + 0.7 * Math.abs(Math.sin(t * 0.8 + hash(i + 200) * 6));
+    const r = 0.5 + hash(i + 300) * 0.9;
+    ctx.fillStyle = `rgba(255,255,255,${0.18 * tw})`; circle(ctx, hash(i) * w, hash(i + 100) * h * 0.75, r); ctx.fill();
+  }
+  const L = [w * 0.16, h * 0.5], R = [w * 0.84, h * 0.5], C = [w * 0.5, -h * 0.4];
+  ctx.strokeStyle = "rgba(255,255,255,0.26)"; ctx.lineWidth = 1.4; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(...L); ctx.quadraticCurveTo(...C, ...R); ctx.stroke();
+  const q = (s) => { const a = 1 - s, b = s; return [a * a * L[0] + 2 * a * b * C[0] + b * b * R[0], a * a * L[1] + 2 * a * b * C[1] + b * b * R[1]]; };
+  for (let k = 0; k < 6; k++) {
+    const dir = k % 2 === 0 ? 1 : -1;
+    const ph = (t * 0.2 + k / 6) % 1;
+    const edge = Math.sin(Math.PI * ph);
+    for (let tr = 0; tr < 9; tr++) {
+      const s = Math.min(1, Math.max(0, (dir > 0 ? ph : 1 - ph) - dir * tr * 0.013));
+      const [x, y] = q(s);
+      ctx.fillStyle = `rgba(255,255,255,${(1 - tr / 9) * 0.85 * edge})`; circle(ctx, x, y, Math.max(0.6, 2.8 - 0.28 * tr)); ctx.fill();
+    }
+  }
+  [L, R].forEach(([x, y], i) => {
+    const frac = (t * 0.5 + i * 0.5) % 1, rr = 13 + 12 * frac;
+    ctx.lineWidth = 1; ctx.strokeStyle = `rgba(255,255,255,${(1 - frac) * 0.3})`; circle(ctx, x, y, rr); ctx.stroke();
+    ctx.fillStyle = "#0B0B0D"; circle(ctx, x, y, 13); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.55)"; circle(ctx, x, y, 13); ctx.stroke();
+    ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineWidth = 1.2; ctx.lineJoin = "round";
+    ctx.beginPath();
+    if (i === 0) ctx.roundRect(x - 3.5, y - 6.5, 7, 13, 1.8);
+    else { ctx.rect(x - 6, y - 5, 12, 7.5); ctx.moveTo(x - 8, y + 5); ctx.lineTo(x + 8, y + 5); }
+    ctx.stroke();
+  });
+}
+
+function drawOrb(t) {
+  const [ctx, w, h] = fitCanvas($("#orb"));
+  ctx.clearRect(0, 0, w, h);
+  const cx = w / 2, cy = h / 2, R = Math.min(w, h) * 0.25;
+  const blob = (scale, phase, amp) => {
+    ctx.beginPath();
+    for (let i = 0; i <= 96; i++) {
+      const a = (i / 96) * Math.PI * 2;
+      const wob = Math.sin(3 * a + phase) * 0.6 + Math.sin(5 * a - phase * 0.7) * 0.4 + Math.sin(2 * a + phase * 0.5) * 0.5;
+      const r = R * scale * (1 + amp * wob);
+      const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+  };
+  ctx.lineWidth = 1;
+  blob(1.62, t * 0.3, 0.05); ctx.strokeStyle = "rgba(255,255,255,0.13)"; ctx.stroke();
+  blob(1.42, -t * 0.26 + 1.3, 0.06); ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.stroke();
+  const pulse = (t / 2.6) % 1;
+  blob(1 + 0.55 * pulse, t * 0.7, 0.07); ctx.lineWidth = 1.2; ctx.strokeStyle = `rgba(245,245,247,${(1 - pulse) * 0.32})`; ctx.stroke();
+  blob(1.0, t * 0.7, 0.07);
+  const g = ctx.createRadialGradient(cx + R * 0.38, cy - R * 0.3, 0, cx + R * 0.38, cy - R * 0.3, R * 1.35);
+  g.addColorStop(0, "rgb(87,87,87)"); g.addColorStop(0.5, "rgb(31,31,31)"); g.addColorStop(1, "rgb(18,18,18)");
+  ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = "rgba(255,255,255,0.09)"; ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, R * 0.72, (120 * Math.PI) / 180, (210 * Math.PI) / 180); ctx.lineWidth = 1.2; ctx.strokeStyle = "rgba(255,255,255,0.1)"; ctx.stroke();
+  for (let i = 0; i < 16; i++) {
+    const ring = i % 2 === 0 ? 1.62 : 1.42, dir = i % 3 === 0 ? -1 : 1;
+    const a = i * 0.83 + t * (0.1 + 0.03 * (i % 4)) * dir;
+    const r = R * ring * (1 + 0.05 * Math.sin(3 * a));
+    const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
+    const alpha = Math.max(0.08, 0.3 + 0.3 * Math.sin(t * 0.9 + i)), s = 1.6 + (i % 3);
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    ctx.save(); ctx.translate(x, y);
+    if (i % 3 === 0) { circle(ctx, 0, 0, s); ctx.fill(); }
+    else if (i % 3 === 1) { ctx.rotate(a + t * 0.4); ctx.fillRect(-s, -s, s * 2, s * 2); }
+    else { ctx.rotate(a * 2); ctx.beginPath(); ctx.moveTo(0, -s * 1.3); ctx.lineTo(s * 1.2, s); ctx.lineTo(-s * 1.2, s); ctx.closePath(); ctx.fill(); }
+    ctx.restore();
+  }
+  const breathe = 1 + 0.06 * Math.sin(t * 2);
+  ctx.save(); ctx.translate(cx, cy); ctx.scale(breathe, breathe); ctx.translate(-22, -22);
+  glyph(ctx, 44, "#F5F5F7"); ctx.restore();
+}
+
+let last = 0;
+function frame(ms) {
+  requestAnimationFrame(frame);
+  if (ms - last < 33) return; // ~30 fps, like the Mac's TimelineView
+  last = ms;
+  const t = ms / 1000;
+  const v = document.body.dataset.view;
+  if (v === "searching" || v === "pairing") drawOrb(t);
+  if (v === "connected") drawHero(t);
+}
+requestAnimationFrame(frame);
+render();
+if (host) send("ready");
+
+// ---------- Demo mode (open the file in a browser with ?demo=…) ----------
+const demo = new URLSearchParams(location.search).get("demo");
+if (!host && demo) {
+  const states = {
+    searching: { view: "searching", status: "Looking for your phone…", paired: true },
+    refused: { view: "searching", status: "Looking for your phone…", paired: true,
+      note: "“Pixel 9” is using another computer. To use it here, open PhoneBridge on the phone → Computers and tap Connect next to this PC." },
+    pairing: { view: "searching", status: "Pairing with Pixel 9…", pairing: { name: "Pixel 9", code: "897505" } },
+    connected: { view: "connected", status: "Connected to Pixel 9", phoneName: "Pixel 9", battery: 82, charging: true, paired: true, version: "0.23.0" },
+  };
+  const bar = $("#demo"); bar.classList.add("show");
+  const go = (k) => { state = Object.assign({}, state, { pairing: null, note: null }, states[k === "settings" ? "connected" : k]); showSettings = k === "settings"; render(); };
+  for (const k of [...Object.keys(states), "settings"]) { const b = document.createElement("button"); b.textContent = k; b.onclick = () => go(k); bar.appendChild(b); }
+  go(demo in states || demo === "settings" ? demo : "searching");
+  if (new URLSearchParams(location.search).has("clean")) bar.classList.remove("show");
+}
+</script>
+</body>
+</html>

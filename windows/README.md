@@ -28,13 +28,25 @@ For a quick debug build: `dotnet build PhoneBridge.sln`.
 
 ## Use
 
-1. Run `PhoneBridge.exe`. A PhoneBridge icon appears in the tray (grey until the phone is connected).
+1. Run `PhoneBridge.exe`. The PhoneBridge window opens on "Looking for nearby phones", and an icon appears in the
+   notification area (grey until the phone is connected).
 2. On the phone: PhoneBridge → **Computers → Pair a new computer** (if it's the first computer, it's already waiting).
 3. Windows Firewall may ask about PhoneBridge the first time; allow it on private networks.
-4. Both screens show the same six-digit code. Check that they match, then press **Pair** on both.
+4. The window shows "Found <your phone>" and a six-digit code. Check it matches the phone, then press **Pair** on both.
 
-After that it reconnects by itself. Click the tray icon for the menu: status, battery, **Send files to phone…**,
-**Ring my phone**, clipboard and notification switches, **Start with Windows**, **Reconnect** and **Forget phone…**.
+After that it reconnects by itself. Click the tray icon to open the window; right-click it for a short menu.
+Closing the window keeps PhoneBridge running in the notification area, like the Mac app in the menu bar.
+
+### Design
+
+The window uses the Mac app's design language: the same 500 × 720 dark window in the default Midnight theme, the
+serif title, the animated orb while it searches, the bridge hero with your phone's name and battery, round-icon action
+tiles, capsule buttons, and settings shown in place. The page is `src/PhoneBridge/ui/index.html`, a port of the
+SwiftUI views (`MainView`, `DiscoveryView`, `ActionTile`, `PillButtonStyle`). It's drawn by WebView2, which comes with
+Windows 11 and current Windows 10. Without WebView2, PhoneBridge falls back to a plain tray menu and pairing dialog.
+Apple's fonts and SF Symbols can't be shipped, so Windows uses Segoe UI and Georgia, and simple line icons drawn to
+match. To look at the design without Windows, open `ui/index.html?demo=connected` (or `searching`, `refused`,
+`pairing`, `settings`) in a browser.
 
 If the phone is paired with other computers and is using one of them, the menu says so and tells you where to switch
 (phone → Computers → Connect). The phone is the one that decides which computer it talks to.
@@ -44,7 +56,7 @@ If the phone is paired with other computers and is using one of them, the menu s
 | Feature | Notes |
 |---|---|
 | Finding the phone | mDNS (`_phonebridge._tcp`), the last address that worked, the default gateway (when the PC is on the phone's hotspot), and the phone's Tailscale addresses |
-| Pairing | Six-digit code on both screens. Waits for the phone's "pair" before showing a code, like the Mac app. Handles "busy" and "unpaired" refusals with a short status line |
+| Pairing | Six-digit code on both screens, shown in the window. Waits for the phone's "pair" before showing a code, like the Mac app. Handles "busy" and "unpaired" refusals with a short status line |
 | Secrets | The PC's X25519 identity and the paired phone's key are stored in `%APPDATA%\PhoneBridge\secrets.bin`, encrypted with DPAPI for the signed-in Windows user |
 | Phone notifications | Shown as Windows toasts with the app's icon. Reply box for messaging apps, the notification's own buttons, and dismissing one here clears it on the phone. Turn off from the menu |
 | Clipboard | Both ways, text and images. Content marked by password managers as excluded from clipboard monitoring isn't sent. One-time codes from SMS are copied, kept out of clipboard history, and cleared after a minute |
@@ -72,6 +84,6 @@ These need Windows-specific work and are left for later:
 | Path | What's inside |
 |---|---|
 | `src/PhoneBridge.Core` | Everything that isn't Windows UI, and runs on any OS: X25519 (a port of the phone's `X25519.kt`), session crypto (`Keys.cs`, matching `mac/Sources/Crypto.swift`), framing, mDNS discovery, the link (`PhoneLink.cs`, matching `mac/Sources/PhoneLink.swift`), file transfers |
-| `src/PhoneBridge` | The WinForms tray app: menu, pairing dialog, toasts, clipboard, DPAPI, start with Windows |
+| `src/PhoneBridge` | The tray app: the window (`MainWindow.cs` hosting `ui/index.html`), tray menu, toasts, clipboard, DPAPI, start with Windows; `PairDialog.cs` is the fallback without WebView2 |
 | `tests/PhoneBridge.Core.Tests` | Crypto checked against fixed vectors from the Mac's CryptoKit code (`tools/vectors.swift`) and RFC 7748; the whole handshake against a fake phone ported from the phone's `Link.kt`; framing, mDNS (including a real phone's answer) and transfers |
 | `tools/vectors.swift` | Regenerates the crypto vectors on a Mac: `swift tools/vectors.swift` |

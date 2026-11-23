@@ -24,6 +24,7 @@
     <PublishSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
     <DebugType>embedded</DebugType>
     
   </PropertyGroup>
@@ -35,6 +36,11 @@
   <ItemGroup>
     <EmbeddedResource Include="Assets\PhoneBridge.ico" LogicalName="PhoneBridge.ico" />
     <EmbeddedResource Include="Assets\PhoneBridge.png" LogicalName="PhoneBridge.png" />
+    <EmbeddedResource Include="ui\index.html" LogicalName="index.html" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3485.44" />
   </ItemGroup>
 
 </Project>
