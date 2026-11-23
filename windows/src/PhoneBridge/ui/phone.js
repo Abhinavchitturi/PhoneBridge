@@ -442,7 +442,7 @@ function renderPanel() {
   $("#feed-count").style.display = feed.length ? "" : "none";
   const pb = $("#panel-badge");
   pb.textContent = Math.min(feed.length, 99);
-  pb.style.display = !P.panel && feed.length ? "" : "none";
+  pb.style.display = !panelShown() && feed.length ? "" : "none";
   const drafts = {};
   $$(".reply input").forEach((i) => { drafts[i.dataset.key] = { v: i.value, f: document.activeElement === i }; });
   $("#feed").innerHTML = feed.map((i) => `<div class="ncard">${avatar(i.app, 32)}<div class="body">
@@ -601,10 +601,27 @@ function confirmSheet(title, text, ok, run) {
 }
 
 // ---------- Rendering ----------
+// The panel takes 320px beside the content when there's room for both; otherwise it floats over it (see body.narrow).
+const isNarrow = () => window.innerWidth < 1060;
+const panelShown = () => (isNarrow() ? !!P.panelOverlay : P.panel);
+function layoutPanel() {
+  document.body.classList.toggle("narrow", isNarrow());
+  document.body.classList.toggle("no-panel", !panelShown());
+}
+let wasNarrow = null;
+window.addEventListener("resize", () => {
+  const n = isNarrow();
+  if (n !== wasNarrow) { wasNarrow = n; P.panelOverlay = false; layoutPanel(); $("#q-panel").classList.toggle("on", panelShown()); }
+});
+// A click outside the floating panel closes it, like a popover.
+document.addEventListener("mousedown", (e) => {
+  if (!isNarrow() || !P.panelOverlay || e.target.closest("#panel, #q-panel")) return;
+  P.panelOverlay = false; layoutPanel(); $("#q-panel").classList.toggle("on", false);
+});
 function render() {
   const tab = P.tab;
   document.body.dataset.tab = tab;
-  document.body.classList.toggle("no-panel", !P.panel);
+  layoutPanel();
   $("#title").textContent = TITLES[tab];
   $("#chip-name").textContent = app.phoneName || "Phone";
   $("#chip-dot").classList.toggle("on", app.connected);
@@ -613,7 +630,7 @@ function render() {
   $$(".quick.needs").forEach((b) => (b.disabled = !app.connected));
   $("#q-dnd").classList.toggle("on", !!app.dnd);
   $("#q-ring").classList.toggle("on", !!app.ringing);
-  $("#q-panel").classList.toggle("on", P.panel);
+  $("#q-panel").classList.toggle("on", panelShown());
   const unread = P.threads.filter(isUnread).length;
   $("#dock").innerHTML = `<button class="item glyph" data-cmd="tab" data-tab="settings" title="Themes (Settings)"><svg width="26" height="26" viewBox="0 0 28 28"><path d="M5 17.6Q14 -0.4 23 17.6" fill="none" stroke="var(--accent)" stroke-width="2.4" stroke-linecap="round"/><circle cx="5" cy="17.6" r="3" fill="var(--accent)"/><circle cx="23" cy="17.6" r="3" fill="var(--accent)"/></svg></button><i class="sep"></i>` +
     TABS.map(([t, title, ic]) => `<button class="item${tab === t ? " sel" : ""}" data-cmd="tab" data-tab="${t}" title="${title}">${icon(ic)}<span>${title}</span>${t === "messages" && unread ? `<i class="badge">${Math.min(unread, 99)}</i>` : ""}</button>`).join("") +
@@ -736,7 +753,10 @@ document.addEventListener("click", (e) => {
   }
   switch (ds.cmd) {
     case "tab": return setTab(ds.tab);
-    case "panel": P.panel = !P.panel; return render();
+    case "panel":
+      // In a narrow window the panel floats over the content and is opened just for a look; the setting is for wide ones.
+      if (isNarrow()) P.panelOverlay = !P.panelOverlay; else P.panel = !P.panel;
+      return render();
     case "palette": return openPalette(!P.palette.open);
     case "dnd": return tx({ t: "phone_dnd", on: !app.dnd });
     case "ring": case "send-files": case "mirror": case "reconnect": case "open-log": case "quit": case "stream-setup":

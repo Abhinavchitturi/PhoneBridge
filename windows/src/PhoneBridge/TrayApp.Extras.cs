@@ -196,6 +196,7 @@ internal sealed partial class TrayApp
     /// <summary>Files (or text) handed over by a second PhoneBridge.exe started from Send to / the command line.</summary>
     internal void FromCommandLine(string[] args)
     {
+        if (args.Contains("--quit")) { Quit(); return; } // the installer is replacing this copy
         var files = args.Where(a => !a.StartsWith("--") && File.Exists(a)).ToArray();
         if (files.Length > 0) _ = SendFiles(files);
         else if (args.SkipWhile(a => a != "--text").Skip(1).FirstOrDefault() is { } text)

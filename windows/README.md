@@ -28,13 +28,17 @@ For a quick debug build: `dotnet build PhoneBridge.sln`.
 
 ## Use
 
-1. Run `PhoneBridge.exe`. The PhoneBridge window opens on "Looking for nearby phones", and an icon appears in the
-   notification area (grey until the phone is connected).
+1. Open the downloaded `PhoneBridge-Windows.exe` and choose **Install**. It installs for your Windows account (no admin
+   needed) into `%LOCALAPPDATA%\Programs\PhoneBridge`, adds PhoneBridge to the Start menu and to **Settings → Apps →
+   Installed apps** (uninstall it from there), and starts. You can delete the downloaded file afterwards.
+   The PhoneBridge window opens on "Looking for nearby phones", and an icon appears in the notification area (grey
+   until the phone is connected).
 2. On the phone: PhoneBridge → **Computers → Pair a new computer** (if it's the first computer, it's already waiting).
 3. Windows Firewall may ask about PhoneBridge the first time; allow it on private networks.
 4. The window shows "Found <your phone>" and a six-digit code. Check it matches the phone, then press **Pair** on both.
 
-After that it reconnects by itself. Click the tray icon to open the window; right-click it for a short menu.
+After that it reconnects by itself. Click the tray icon to open the window; right-click it for a short menu (a normal
+Windows menu, light or dark with Windows).
 Closing the window keeps PhoneBridge running in the notification area, like the Mac app in the menu bar.
 
 ### Design
@@ -74,7 +78,8 @@ Everything the Mac app does, except where Windows has no equivalent (noted below
 | Themes | All six themes, with their drawings and animated banners; switching here switches the phone, and the other way round |
 | **Updates** | Checks GitHub releases when it opens, when the phone connects and every 4 hours. When a newer release has `PhoneBridge-Windows.exe` it asks "Update now?", downloads it, checks it against the SHA-256 GitHub lists for that file, swaps it in and restarts |
 
-Command line: `PhoneBridge.exe file1 file2` sends files, `PhoneBridge.exe --text "hello"` puts text on the phone's clipboard
+Command line: `PhoneBridge.exe --portable` runs a download without installing it, `--uninstall` removes it (`--quiet`
+for no questions; `--install --quiet` installs silently), `PhoneBridge.exe file1 file2` sends files, `PhoneBridge.exe --text "hello"` puts text on the phone's clipboard
 (a running PhoneBridge picks the request up). Logs: `%LOCALAPPDATA%\PhoneBridge\phonebridge.log`.
 
 ## Releases
@@ -90,7 +95,7 @@ gh release create v<version> release/PhoneBridge.dmg release/PhoneBridge.apk rel
 ## Not on Windows (yet)
 
 - **Call audio on the PC**: the Mac app doesn't have it either (macOS refuses Bluetooth call audio); both apps have call control
-- An installer and code signing: SmartScreen warns about an unsigned `.exe` the first time
+- Code signing: SmartScreen warns about an unsigned `.exe` the first time
 - Clicking an old notification in Action Center after PhoneBridge has quit does nothing (buttons work while it runs, which is always while it's in the tray)
 - Drag a photo out of the phone window into Explorer (use Download or Copy)
 

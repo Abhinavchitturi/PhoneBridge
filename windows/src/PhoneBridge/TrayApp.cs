@@ -79,13 +79,13 @@ internal sealed partial class TrayApp : ApplicationContext
         }
 
         _tray = new NotifyIcon { Icon = _iconOff, Visible = true, Text = "PhoneBridge" };
-        _tray.ContextMenuStrip = BuildMenu();
+        NativeMenu.FollowSystemTheme();
+        _menu = BuildMenu();
         _tray.MouseUp += (_, e) =>
         {
-            if (e.Button != MouseButtons.Left) return;
-            // Left click opens the window, like clicking PhoneBridge in the Dock; without it, the menu.
-            if (_window != null) _window.Toggle();
-            else typeof(NotifyIcon).GetMethod("ShowContextMenu", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(_tray, null);
+            // Left click opens the window, like clicking PhoneBridge in the Dock; right click (or no window), the menu.
+            if (e.Button == MouseButtons.Left && _window != null) _window.Toggle();
+            else if (e.Button is MouseButtons.Left or MouseButtons.Right) ShowMenu();
         };
 
         _toasts = new Toasts(_tray);
@@ -201,9 +201,18 @@ internal sealed partial class TrayApp : ApplicationContext
 
     // MARK: Menu
 
-    private ContextMenuStrip BuildMenu()
+    /// <summary>The tray menu's items; shown as a native Windows menu by <see cref="NativeMenu"/>.</summary>
+    private readonly List<ToolStripItem> _menu;
+
+    private void ShowMenu()
     {
-        var m = new ContextMenuStrip();
+        Refresh();
+        NativeMenu.Show(_menu);
+    }
+
+    private List<ToolStripItem> BuildMenu()
+    {
+        var m = new List<ToolStripItem>();
         _sendFiles.Click += (_, _) => PickFiles();
         _ring.Click += (_, _) => _ = _link.SendAsync(_ringing ? "ring_stop" : "ring");
         _syncClip.Checked = _store.GetBool("syncClipboard", true);
@@ -228,7 +237,7 @@ internal sealed partial class TrayApp : ApplicationContext
             // Like the Mac's menu-bar menu: status, then the quick actions; settings live in the window.
             var open = new ToolStripMenuItem("Open PhoneBridge", null, (_, _) => _window.ShowAndActivate());
             open.Font = new Font(open.Font, FontStyle.Bold);
-            m.Items.AddRange([
+            m.AddRange([
                 _statusItem, _noteItem, _batteryItem,
                 new ToolStripSeparator(),
                 open,
@@ -244,7 +253,7 @@ internal sealed partial class TrayApp : ApplicationContext
         }
         else
         {
-            m.Items.AddRange([
+            m.AddRange([
                 _statusItem, _noteItem, _batteryItem,
                 new ToolStripSeparator(),
                 _sendFiles, _ring,
@@ -258,8 +267,6 @@ internal sealed partial class TrayApp : ApplicationContext
                 new ToolStripMenuItem("Quit PhoneBridge", null, (_, _) => Quit()),
             ]);
         }
-        DarkMenuRenderer.Apply(m, checks: _window == null);
-        m.Opening += (_, _) => Refresh();
         return m;
     }
 

@@ -26,7 +26,7 @@ internal sealed class MainWindow : Form
         Icon = icon;
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScaleDimensions = new SizeF(96F, 96F);
-        ClientSize = new Size(500, 720); // the Mac window's size, in points
+        ClientSize = Dwm.FitScreen(LogicalToDeviceUnits(new Size(500, 720))); // the Mac window's size, in points (96-dpi units), scaled for the display
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
@@ -104,6 +104,13 @@ internal static class Dwm
         catch (DllNotFoundException) { }
     }
 
+    /// <summary>A window size that fits on the main screen (big display scaling on a small screen), leaving room for the frame.</summary>
+    public static Size FitScreen(Size s)
+    {
+        var area = (Screen.PrimaryScreen ?? Screen.AllScreens[0]).WorkingArea;
+        return new Size(Math.Min(s.Width, area.Width - 40), Math.Min(s.Height, area.Height - 60));
+    }
+
     public static void RoundCorners(IntPtr hwnd)
     {
         try
@@ -115,66 +122,3 @@ internal static class Dwm
     }
 }
 
-/// <summary>The tray menu in the window's colours (dark, quiet hover, no gradients), with Windows 11's rounded corners.</summary>
-internal sealed class DarkMenuRenderer : ToolStripProfessionalRenderer
-{
-    private static readonly Color Bg = Color.FromArgb(0x1C, 0x1C, 0x1F);
-    private static readonly Color Hover = Color.FromArgb(0x2C, 0x2C, 0x30);
-    private static readonly Color Text = Color.FromArgb(0xF5, 0xF5, 0xF7);
-    private static readonly Color Dim = Color.FromArgb(0x8E, 0x8E, 0x93);
-    private static readonly Color Line = Color.FromArgb(0x33, 0x33, 0x37);
-
-    public DarkMenuRenderer() : base(new Colors()) => RoundedEdges = true;
-
-    public static void Apply(ContextMenuStrip menu, bool checks)
-    {
-        menu.Renderer = new DarkMenuRenderer();
-        menu.BackColor = Bg;
-        menu.ForeColor = Text;
-        menu.ShowImageMargin = false;
-        menu.ShowCheckMargin = checks;
-        menu.Padding = new Padding(4, 6, 4, 6);
-        menu.HandleCreated += (_, _) => Dwm.RoundCorners(menu.Handle);
-    }
-
-    protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
-    {
-        e.TextColor = e.Item.Enabled ? Text : Dim;
-        base.OnRenderItemText(e);
-    }
-
-    protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
-    {
-        var r = new Rectangle(2, 0, e.Item.Width - 4, e.Item.Height);
-        using var b = new SolidBrush(e.Item.Selected && e.Item.Enabled ? Hover : Bg);
-        e.Graphics.FillRectangle(b, r);
-    }
-
-    protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
-    {
-        using var p = new Pen(Line);
-        var y = e.Item.Height / 2;
-        e.Graphics.DrawLine(p, 10, y, e.Item.Width - 10, y);
-    }
-
-    protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
-    {
-        using var p = new Pen(Text, 1.6f);
-        var r = e.ImageRectangle;
-        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        e.Graphics.DrawLines(p, [new Point(r.Left + 3, r.Top + r.Height / 2), new Point(r.Left + r.Width / 2 - 1, r.Bottom - 4), new Point(r.Right - 3, r.Top + 4)]);
-    }
-
-    private sealed class Colors : ProfessionalColorTable
-    {
-        public override Color ToolStripDropDownBackground => Bg;
-        public override Color MenuBorder => Line;
-        public override Color MenuItemBorder => Hover;
-        public override Color MenuItemSelected => Hover;
-        public override Color ImageMarginGradientBegin => Bg;
-        public override Color ImageMarginGradientMiddle => Bg;
-        public override Color ImageMarginGradientEnd => Bg;
-        public override Color SeparatorDark => Line;
-        public override Color SeparatorLight => Bg;
-    }
-}

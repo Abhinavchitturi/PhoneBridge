@@ -214,10 +214,9 @@ internal sealed class FloatingPanel : Form
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScaleDimensions = new SizeF(96F, 96F);
         BackColor = Color.FromArgb(0x0B, 0x0B, 0x0D);
-        ClientSize = size;
         Host = new WebHost(page, onCommand);
         Controls.Add(Host.View);
-        Place();
+        SetLogicalSize(size);
     }
 
     protected override bool ShowWithoutActivation => true;

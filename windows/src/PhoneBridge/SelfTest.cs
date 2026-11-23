@@ -30,6 +30,22 @@ internal static class SelfTest
         Append($"ERROR {where}: {error}");
     }
 
+    public static void Note(string line) { if (Active) Append(line); }
+
+    /// <summary>Saves the screen to %LOCALAPPDATA%\PhoneBridge\selftest-NAME (CI uploads them).</summary>
+    public static void Screenshot(string name)
+    {
+        if (!Active) return;
+        try
+        {
+            var b = SystemInformation.VirtualScreen;
+            using var bmp = new Bitmap(b.Width, b.Height);
+            using (var g = Graphics.FromImage(bmp)) g.CopyFromScreen(b.Location, Point.Empty, b.Size);
+            bmp.Save(Path.Combine(Log.Dir, "selftest-" + name), System.Drawing.Imaging.ImageFormat.Png);
+        }
+        catch (Exception e) { Append("screenshot " + name + ": " + e.Message); }
+    }
+
     public static void PageLoaded(string page)
     {
         if (!Active) return;
@@ -51,7 +67,7 @@ internal static class SelfTest
                 if (step == 2) _ = Task.Run(app.SelfTestPhoneTalks); // like the network thread does
                 bool all;
                 lock (Loaded) all = Expected.All(Loaded.Contains);
-                if (all && step >= 8 || step >= 30) // at most a minute
+                if (all && step >= 10 || step >= 30) // at most a minute
                 {
                     timer.Stop();
                     app.SelfTestQuit();
@@ -148,7 +164,18 @@ internal sealed partial class TrayApp
         PushState();
         SchedulePhoneState();
         _ui.Post(_ => OpenPhone("messages", "+15550134"), null);
-        await Task.Delay(1500);
+        await Task.Delay(2500);
+        SelfTest.Screenshot("phone-window.png");
+        // The tray menu: open it (it's modal, like any Windows menu), photograph it, close it.
+        _ui.Post(_ =>
+        {
+            var close = new System.Windows.Forms.Timer { Interval = 1200 };
+            close.Tick += (_, _) => { close.Dispose(); SelfTest.Screenshot("tray-menu.png"); NativeMenu.Close(); };
+            close.Start();
+            ShowMenu();
+            SelfTest.Note("tray menu opened and closed");
+        }, null);
+        await Task.Delay(2500);
         _ui.Post(_ => Update(Core.LinkState.Searching, ""), null);
     }
 
