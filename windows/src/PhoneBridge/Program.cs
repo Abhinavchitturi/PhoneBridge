@@ -33,18 +33,40 @@ internal static class Program
             return;
         }
 
+        var selfTest = Array.IndexOf(args, "--selftest") >= 0;
+        if (selfTest) SelfTest.Begin();
         ApplicationConfiguration.Initialize();
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
-        Application.ThreadException += (_, e) => Log.Write("UI error: " + e.Exception);
-        AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.Write("fatal: " + e.ExceptionObject);
-        TaskScheduler.UnobservedTaskException += (_, e) => { Log.Write("task: " + e.Exception); e.SetObserved(); };
+        Application.ThreadException += (_, e) => { Log.Write("UI error: " + e.Exception); SelfTest.Error("UI", e.Exception); };
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => Crash(e.ExceptionObject);
+        TaskScheduler.UnobservedTaskException += (_, e) => { Log.Write("task: " + e.Exception); SelfTest.Error("task", e.Exception); e.SetObserved(); };
 
-        var app = TrayApp.Create();
+        TrayApp? app;
+        try { app = TrayApp.Create(); }
+        catch (Exception e) { Crash(e); return; }
         if (app == null) return;
-        var ui = SynchronizationContext.Current!;
+        var ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
         _ = Task.Run(() => Listen(a => ui.Post(_ => app.FromCommandLine(a), null)));
-        if (args.Any(a => a != "--send")) ui.Post(_ => app.FromCommandLine(args), null);
+        if (selfTest) SelfTest.Run(app);
+        else if (args.Any(a => a != "--send")) ui.Post(_ => app.FromCommandLine(args), null);
         Application.Run(app);
+        SelfTest.End();
+    }
+
+    /// <summary>Something went badly wrong: log it, say so (with where the log is), and quit cleanly.</summary>
+    private static void Crash(object error)
+    {
+        Log.Write("fatal: " + error);
+        SelfTest.Error("fatal", error);
+        if (SelfTest.Active) { SelfTest.End(); Environment.Exit(2); }
+        try
+        {
+            MessageBox.Show($"PhoneBridge ran into a problem and has to close.\n\n{(error as Exception)?.Message ?? error.ToString()}\n\n" +
+                            $"Details are in {Path.Combine(Log.Dir, "phonebridge.log")} — please attach it to an issue on GitHub.",
+                "PhoneBridge", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        catch (Exception) { }
+        Environment.Exit(1);
     }
 
     private static void Forward(string[] args)
