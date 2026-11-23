@@ -17,6 +17,8 @@ public sealed class Transfers
         public readonly string Path = path;
         public readonly string? Kind = kind;
         public readonly long Total = total;
+        public long Got;
+        public DateTime LastReport = DateTime.MinValue;
     }
 
     private readonly Dictionary<string, Incoming> _incoming = [];
@@ -24,6 +26,10 @@ public sealed class Transfers
 
     /// <summary>(path, kind) once a file has fully arrived.</summary>
     public event Action<string, string?>? Received;
+    /// <summary>(kind, bytes so far, total bytes or -1) while a file arrives; a few times a second.</summary>
+    public event Action<string?, long, long>? Progress;
+    /// <summary>Where a file of this kind goes; by default <see cref="Folder"/>. (Photos opened in the viewer go to a cache.)</summary>
+    public Func<string?, string>? FolderFor { get; set; }
 
     public Transfers(string folder) => Folder = folder;
 
@@ -36,21 +42,34 @@ public sealed class Transfers
             case "file_start":
             {
                 var name = SafeName(PhoneLink.Str(m, "name") ?? "file");
-                Directory.CreateDirectory(Folder);
-                var path = UniquePath(Folder, name);
+                var kind = PhoneLink.Str(m, "kind");
+                var folder = FolderFor?.Invoke(kind) ?? Folder;
+                Directory.CreateDirectory(folder);
+                var path = UniquePath(folder, name);
                 var total = m["size"] is JsonValue v && v.TryGetValue<long>(out var n) ? n : -1;
                 lock (_incoming)
                 {
                     if (_incoming.Remove(fid, out var old)) old.File.Dispose();
-                    _incoming[fid] = new Incoming(new FileStream(path, FileMode.CreateNew, FileAccess.Write), path, PhoneLink.Str(m, "kind"), total);
+                    _incoming[fid] = new Incoming(new FileStream(path, FileMode.CreateNew, FileAccess.Write), path, kind, total);
                 }
+                Progress?.Invoke(kind, 0, total);
                 break;
             }
             case "file_chunk":
             {
                 Incoming? f;
                 lock (_incoming) _incoming.TryGetValue(fid, out f);
-                if (f != null && PhoneLink.Str(m, "data") is { } b64) f.File.Write(Convert.FromBase64String(b64));
+                if (f != null && PhoneLink.Str(m, "data") is { } b64)
+                {
+                    var bytes = Convert.FromBase64String(b64);
+                    f.File.Write(bytes);
+                    f.Got += bytes.Length;
+                    if (DateTime.UtcNow - f.LastReport > TimeSpan.FromMilliseconds(150))
+                    {
+                        f.LastReport = DateTime.UtcNow;
+                        Progress?.Invoke(f.Kind, f.Got, f.Total);
+                    }
+                }
                 break;
             }
             case "file_end":

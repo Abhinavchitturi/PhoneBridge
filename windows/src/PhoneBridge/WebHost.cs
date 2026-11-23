@@ -55,10 +55,16 @@ internal sealed class WebHost
 #if !DEBUG
             s.AreDevToolsEnabled = false;
 #endif
+            foreach (var (h, f) in _maps) core.SetVirtualHostNameToFolderMapping(h, f, CoreWebView2HostResourceAccessKind.Allow);
             core.WebMessageReceived += OnMessage;
             core.NewWindowRequested += (_, e) => e.Handled = true;
             // The page is the whole app: never navigate away (e.g. a file dropped outside a drop handler).
             core.NavigationStarting += (_, e) => { if (_ready) e.Cancel = true; };
+            core.NewWindowRequested += (_, e) =>
+            {
+                // Links the page opens (maps, the project page) go to the default browser.
+                if (Uri.TryCreate(e.Uri, UriKind.Absolute, out var u) && u.Scheme == "https") Shell.Open(u.AbsoluteUri);
+            };
             core.NavigateToString(Page(_page));
         }
         catch (Exception e)
@@ -67,12 +73,24 @@ internal sealed class WebHost
         }
     }
 
-    /// <summary>An embedded page, with the shared stylesheet and drawing code (ui/common.css, ui/common.js) inlined.</summary>
+    /// <summary>An embedded page with its local stylesheets and scripts (ui/common.css, ui/common.js, …) inlined.</summary>
     internal static string Page(string name)
     {
         var html = Resource(name);
-        return html.Replace("<link rel=\"stylesheet\" href=\"common.css\">", "<style>" + Resource("common.css") + "</style>")
-                   .Replace("<script src=\"common.js\"></script>", "<script>" + Resource("common.js") + "</script>");
+        html = System.Text.RegularExpressions.Regex.Replace(html, "<link rel=\"stylesheet\" href=\"([a-z]+\\.css)\">",
+            m => "<style>" + Resource(m.Groups[1].Value) + "</style>");
+        return System.Text.RegularExpressions.Regex.Replace(html, "<script src=\"([a-z]+\\.js)\"></script>",
+            m => "<script>" + Resource(m.Groups[1].Value).Replace("</script", "<\\/script") + "</script>");
+    }
+
+    private readonly List<(string Host, string Folder)> _maps = [];
+
+    /// <summary>Serves a local folder to the page at https://{host}/ (read-only) — used for full-size photos and videos.</summary>
+    public void MapFolder(string host, string folder)
+    {
+        Directory.CreateDirectory(folder);
+        if (View.CoreWebView2 != null) View.CoreWebView2.SetVirtualHostNameToFolderMapping(host, folder, CoreWebView2HostResourceAccessKind.Allow);
+        else _maps.Add((host, folder));
     }
 
     private static string Resource(string name)

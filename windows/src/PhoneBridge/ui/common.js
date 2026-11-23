@@ -101,7 +101,13 @@ function circle(ctx, x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2
 
 function drawHero(t) {
   const [ctx, w, h] = fitCanvas($("#hero"));
-  ctx.fillStyle = "#0B0B0D"; ctx.fillRect(0, 0, w, h);
+  if (typeof heroScene === "function") heroScene(ctx, w, h, t); else drawHeroArch(ctx, w, h, t);
+}
+
+/** Midnight's banner: night sky with slow light, a bridge between a phone and a computer, packets travelling over it. */
+function drawHeroArch(ctx, w, h, t) {
+  const bg = typeof currentTheme !== "undefined" ? currentTheme.bg : "#0B0B0D";
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
   const glow = (x, y, r, a, white) => {
     const g = ctx.createRadialGradient(x, y, 0, x, y, r);
     g.addColorStop(0, `rgba(${white},${white},${white},${a})`); g.addColorStop(1, "rgba(0,0,0,0)");
@@ -131,7 +137,7 @@ function drawHero(t) {
   [L, R].forEach(([x, y], i) => {
     const frac = (t * 0.5 + i * 0.5) % 1, rr = 13 + 12 * frac;
     ctx.lineWidth = 1; ctx.strokeStyle = `rgba(255,255,255,${(1 - frac) * 0.3})`; circle(ctx, x, y, rr); ctx.stroke();
-    ctx.fillStyle = "#0B0B0D"; circle(ctx, x, y, 13); ctx.fill();
+    ctx.fillStyle = bg; circle(ctx, x, y, 13); ctx.fill();
     ctx.strokeStyle = "rgba(255,255,255,0.55)"; circle(ctx, x, y, 13); ctx.stroke();
     ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineWidth = 1.2; ctx.lineJoin = "round";
     ctx.beginPath();
@@ -160,13 +166,16 @@ function drawOrb(t) {
   blob(1.62, t * 0.3, 0.05); ctx.strokeStyle = "rgba(255,255,255,0.13)"; ctx.stroke();
   blob(1.42, -t * 0.26 + 1.3, 0.06); ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.stroke();
   const pulse = (t / 2.6) % 1;
-  blob(1 + 0.55 * pulse, t * 0.7, 0.07); ctx.lineWidth = 1.2; ctx.strokeStyle = `rgba(245,245,247,${(1 - pulse) * 0.32})`; ctx.stroke();
+  const accent = typeof currentTheme !== "undefined" ? currentTheme.accent : "#F5F5F7";
+  blob(1 + 0.55 * pulse, t * 0.7, 0.07); ctx.lineWidth = 1.2;
+  ctx.strokeStyle = typeof rgba === "function" ? rgba(accent, (1 - pulse) * 0.32) : `rgba(245,245,247,${(1 - pulse) * 0.32})`; ctx.stroke();
   blob(1.0, t * 0.7, 0.07);
   const g = ctx.createRadialGradient(cx + R * 0.38, cy - R * 0.3, 0, cx + R * 0.38, cy - R * 0.3, R * 1.35);
   g.addColorStop(0, "rgb(87,87,87)"); g.addColorStop(0.5, "rgb(31,31,31)"); g.addColorStop(1, "rgb(18,18,18)");
   ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = "rgba(255,255,255,0.09)"; ctx.stroke();
   ctx.beginPath(); ctx.arc(cx, cy, R * 0.72, (120 * Math.PI) / 180, (210 * Math.PI) / 180); ctx.lineWidth = 1.2; ctx.strokeStyle = "rgba(255,255,255,0.1)"; ctx.stroke();
-  for (let i = 0; i < 16; i++) {
+  const themed = typeof orbExtras === "function" ? orbExtras(ctx, cx, cy, R, t) : false;
+  for (let i = 0; i < (themed ? 0 : 16); i++) {
     const ring = i % 2 === 0 ? 1.62 : 1.42, dir = i % 3 === 0 ? -1 : 1;
     const a = i * 0.83 + t * (0.1 + 0.03 * (i % 4)) * dir;
     const r = R * ring * (1 + 0.05 * Math.sin(3 * a));
@@ -181,6 +190,7 @@ function drawOrb(t) {
   }
   const breathe = 1 + 0.06 * Math.sin(t * 2);
   ctx.save(); ctx.translate(cx, cy); ctx.scale(breathe, breathe); ctx.translate(-22, -22);
-  glyph(ctx, 44, "#F5F5F7"); ctx.restore();
+  if (typeof themeGlyph === "function") themeGlyph(ctx, 44); else glyph(ctx, 44, "#F5F5F7");
+  ctx.restore();
 }
 

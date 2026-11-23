@@ -131,3 +131,12 @@
 
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--orange); flex: none; }
   .dot.on { background: var(--green); }
+
+  .big-serif { font-family: var(--font-serif); font-size: 34px; font-weight: 400; line-height: 1.12; text-align: center; letter-spacing: -0.2px; }
+  .bigbtn {
+    flex: 1; height: 42px; border-radius: 14px; display: flex; align-items: center; justify-content: center; gap: 8px;
+    font-size: 13.5px; font-weight: 600; background: var(--card); border: 1px solid var(--stroke); transition: background .12s, transform .2s;
+  }
+  .bigbtn:hover { background: var(--card-hover); }
+  .bigbtn:active { transform: scale(.97); }
+  .bigbtn .ico { font-size: 15px; }

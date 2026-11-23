@@ -47,7 +47,7 @@
 </head>
 <body data-mode="ringing">
 <div class="surface">
-  <svg class="corner" width="14" height="14" viewBox="0 0 28 28" aria-hidden="true"><path d="M5 17.6Q14 -0.4 23 17.6" fill="none" stroke="#F5F5F7" stroke-width="2.4" stroke-linecap="round"/><circle cx="5" cy="17.6" r="3" fill="#F5F5F7"/><circle cx="23" cy="17.6" r="3" fill="#F5F5F7"/></svg>
+  <canvas class="corner" width="28" height="28" style="width:14px;height:14px"></canvas>
 
   <!-- Incoming / dialling -->
   <div class="row" id="ringing-card">
@@ -81,6 +81,7 @@
 </div>
 
 <script src="common.js"></script>
+<script src="themes.js"></script>
 <script>
 "use strict";
 let call = { mode: "ringing", name: null, number: null, detail: null, outgoing: false, answered: false, startedAt: null,
@@ -144,7 +145,9 @@ document.addEventListener("click", (e) => {
   send(b.dataset.cmd);
 });
 
-onHost((m) => { if (m.type === "state") { call = Object.assign(call, m.state); render(); } });
+function corner() { const c = $("canvas.corner"); const ctx = c.getContext("2d"); ctx.clearRect(0, 0, 28, 28); themeGlyph(ctx, 28); }
+onHost((m) => { if (m.type === "state") { call = Object.assign(call, m.state); if (call.theme) applyTheme(call.theme); corner(); render(); } });
+corner(); setTimeout(corner, 500);
 render();
 send("ready");
 

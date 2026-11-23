@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phone</title>
+<!--
+  The phone window (mac/Sources/PhoneDesign.swift PhoneView and the tabs around it): Messages, Photos & Videos, Calls,
+  Phone Apps, Clipboard & Notes, Device & Find My Phone, Notification History and Settings, with the floating dock,
+  the top bar, the live notifications panel and the Ctrl+K command palette. Logic is in phone.js.
+  Preview: python3 tools/inline-ui.py phone.html messages (or photos, calls, apps, clipboard, device, notifications, settings).
+-->
+<link rel="stylesheet" href="common.css">
+<style>
+  body { display: flex; }
+  #main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+  #panel { width: 320px; flex: none; border-left: 1px solid var(--stroke); background: rgba(255, 255, 255, .03); display: flex; flex-direction: column; }
+  body.no-panel #panel { display: none; }
+  .backdrop-art { position: absolute; top: 0; right: 0; width: 380px; height: 320px; pointer-events: none; opacity: 1; }
+
+  /* Top bar */
+  .topbar { display: flex; align-items: center; gap: 12px; padding: 22px 18px 12px 26px; position: relative; z-index: 1; }
+  .topbar h1 { font: 700 26px/1.1 var(--font-rounded); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-radius: 16px; background: var(--card); border: 1px solid var(--stroke); }
+  .chip .phone { width: 26px; height: 34px; border-radius: 8px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font-size: 14px; }
+  .chip b { font-size: 13px; font-weight: 600; display: block; white-space: nowrap; }
+  .chip small { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--secondary); white-space: nowrap; }
+  .chip .dot { width: 6px; height: 6px; }
+  .quick { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-size: 16px; background: var(--card); border: 1px solid var(--stroke); position: relative; transition: background .12s; }
+  .quick:hover { background: var(--card-hover); }
+  .quick.on { background: var(--accent); color: var(--on-accent); }
+  .quick:disabled { opacity: .4; }
+  .quick .badge { position: absolute; top: -4px; right: -5px; }
+  .vsep { width: 1px; height: 24px; background: var(--stroke); }
+  .badge { font-size: 9.5px; font-weight: 700; color: #fff; padding: 1.5px 5px; border-radius: 999px; background: var(--red); line-height: 1.2; }
+
+  /* Content and dock */
+  #content { flex: 1; min-height: 0; position: relative; padding-bottom: 72px; }
+  .tab { position: absolute; inset: 0 0 72px 0; display: none; animation: tabin .32s cubic-bezier(.2, .9, .3, 1); }
+  .tab.show { display: flex; }
+  @keyframes tabin { from { opacity: 0; transform: scale(.985) translateY(6px); } }
+  .dock {
+    position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 4; display: flex; align-items: center; gap: 2px; padding: 6px;
+    border-radius: 999px; background: rgba(30, 30, 34, .78); backdrop-filter: blur(20px) saturate(1.4); border: 1px solid rgba(255, 255, 255, .12);
+    box-shadow: 0 8px 40px rgba(0, 0, 0, .45);
+  }
+  .dock .item { height: 38px; padding: 0 12px; border-radius: 999px; display: flex; align-items: center; gap: 7px; color: var(--secondary); font-size: 17px; position: relative; transition: transform .12s, color .12s; }
+  .dock .item:hover { color: var(--text); transform: scale(1.12); }
+  .dock .item.sel { background: var(--accent); color: var(--on-accent); padding: 0 14px; transform: none; }
+  .dock .item span { display: none; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+  .dock .item.sel span { display: inline; }
+  .dock .item .badge { position: absolute; top: -3px; right: -4px; }
+  .dock .sep { width: 1px; height: 22px; background: var(--stroke); margin: 0 4px; }
+  .dock .glyph { padding: 0 10px; }
+  .pane { flex: 1; min-height: 0; padding: 0 18px 18px 20px; display: flex; gap: 14px; }
+
+  /* Search field (SearchField) */
+  .search { position: relative; }
+  .search .ico { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--secondary); font-size: 14px; }
+  .search .field { padding-left: 32px; }
+
+  /* Messages */
+  .threads { width: 320px; flex: none; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+  .list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; scrollbar-width: thin; }
+  .thread { display: flex; gap: 12px; padding: 10px; border-radius: 16px; text-align: left; border: 1px solid transparent; }
+  .thread:hover { background: rgba(255, 255, 255, .04); }
+  .thread.sel { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+  .thread .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .thread .top { display: flex; gap: 6px; align-items: baseline; }
+  .thread .top b { flex: 1; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .thread.unread .top b { font-weight: 800; }
+  .thread .top span { font-size: 11px; color: var(--secondary); white-space: nowrap; }
+  .thread .snip { display: flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--secondary); }
+  .thread .snip p { flex: 1; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .thread.unread .snip p { color: var(--text); }
+  .unread-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); flex: none; }
+  .chat { flex: 1; min-width: 0; border-radius: 22px; display: flex; flex-direction: column; }
+  .chat-head { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--stroke); }
+  .chat-head .who { flex: 1; min-width: 0; }
+  .chat-head b { font: 700 16px/1.2 var(--font-rounded); display: block; }
+  .chat-head small { font-size: 11px; color: var(--secondary); }
+  .roundbtn { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-size: 15px; color: #fff; background: var(--green); flex: none; }
+  .msgs { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 18px; display: flex; flex-direction: column; gap: 4px; user-select: text; }
+  .stamp { align-self: center; font-size: 11px; font-weight: 500; color: var(--secondary); padding: 10px 0; }
+  .bubble { max-width: calc(100% - 90px); padding: 9px 14px; font-size: 14px; line-height: 1.35; border-radius: 20px 20px 20px 6px; background: rgba(255, 255, 255, .09); align-self: flex-start; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .bubble.mine { align-self: flex-end; background: var(--accent); color: var(--on-accent); border-radius: 20px 20px 6px 20px; }
+  .chips { display: flex; gap: 8px; padding: 6px 16px 0; overflow-x: auto; scrollbar-width: none; flex: none; }
+  .chips button { font-size: 12px; font-weight: 500; padding: 6px 12px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 14%, transparent); white-space: nowrap; }
+  .chips .add { width: 28px; height: 28px; padding: 0; display: grid; place-items: center; background: var(--card); border: 1px solid var(--stroke); flex: none; }
+  .composer { margin: 14px; display: flex; align-items: flex-end; gap: 10px; padding: 6px 6px 6px 18px; border-radius: 24px; background: rgba(255, 255, 255, .06); border: 1px solid var(--stroke); }
+  .composer textarea { flex: 1; resize: none; background: none; border: 0; outline: none; color: var(--text); font: 14px/1.4 var(--font); max-height: 110px; padding: 7px 0; user-select: text; }
+  .send { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); font-size: 15px; flex: none; }
+  .send:disabled { background: rgba(255, 255, 255, .2); }
+  .to-row { display: flex; align-items: center; gap: 10px; padding: 12px 18px; border-bottom: 1px solid var(--stroke); }
+  .to-row input { flex: 1; }
+  .suggest { position: absolute; z-index: 6; left: 18px; right: 18px; top: 58px; max-height: 260px; overflow: auto; padding: 6px; border-radius: 14px; background: #1C1C1F; border: 1px solid var(--stroke); box-shadow: 0 12px 40px rgba(0,0,0,.5); }
+  .suggest button { display: flex; gap: 10px; align-items: center; width: 100%; padding: 6px 8px; border-radius: 10px; text-align: left; }
+  .suggest button:hover { background: rgba(255,255,255,.06); }
+
+  /* Photos */
+  .rail { width: 236px; flex: none; display: flex; flex-direction: column; background: rgba(255, 255, 255, .035); border-right: 1px solid var(--stroke); margin: 0 0 -18px -20px; }
+  .rail .list { padding: 10px; }
+  .album { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 13px; border: 1px solid transparent; text-align: left; }
+  .album.sel { background: color-mix(in srgb, var(--accent) 15%, transparent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+  .album.sel b { color: var(--accent); }
+  .album img, .album .cov { width: 40px; height: 40px; border-radius: 10px; object-fit: cover; flex: none; }
+  .album .cov { display: grid; place-items: center; background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, transparent)); color: var(--on-accent); font-size: 16px; }
+  .album b { font-size: 13px; font-weight: 600; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .album small { font-size: 11px; color: var(--secondary); }
+  .overline { font-size: 10.5px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; color: var(--secondary); padding: 14px 10px 4px; }
+  .dropzone { margin: 10px; padding: 14px; border-radius: 14px; border: 1.5px dashed rgba(235, 235, 245, .35); color: var(--secondary); display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; background: rgba(255,255,255,.04); }
+  .dropzone .ico { font-size: 18px; }
+  body.dragging .dropzone { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .gridpane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .gridhead { display: flex; flex-direction: column; gap: 10px; padding: 0 0 12px; }
+  .gridhead .row { display: flex; align-items: center; gap: 10px; }
+  .gridhead h2 { font: 700 22px/1.15 var(--font-rounded); }
+  .seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; background: rgba(255, 255, 255, .08); align-self: flex-start; }
+  .seg button { font-size: 12.5px; font-weight: 600; padding: 5px 14px; border-radius: 999px; white-space: nowrap; }
+  .seg button.sel { background: var(--accent); color: var(--on-accent); }
+  .pill.sm { font-size: 12.5px; padding: 6px 12px; }
+  .scroller { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+  .dayhead { position: sticky; top: 0; z-index: 1; display: flex; gap: 8px; align-items: baseline; padding: 8px 0; background: color-mix(in srgb, var(--bg) 80%, transparent); backdrop-filter: blur(12px); }
+  .dayhead b { font: 700 15px/1.2 var(--font-rounded); }
+  .dayhead span { font-size: 11px; font-weight: 500; color: var(--secondary); }
+  .photogrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; padding-bottom: 14px; }
+  .cell { position: relative; aspect-ratio: 1; border-radius: 14px; overflow: hidden; background: rgba(255, 255, 255, .07); border: 1px solid rgba(255, 255, 255, .06); transition: transform .14s, box-shadow .14s; }
+  .cell:hover { transform: scale(1.03); box-shadow: 0 6px 24px rgba(0, 0, 0, .32); z-index: 1; border-color: rgba(255, 255, 255, .25); }
+  .cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cell .vid { position: absolute; left: 8px; bottom: 8px; display: flex; gap: 4px; align-items: center; padding: 4px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; color: #fff; background: rgba(0, 0, 0, .45); backdrop-filter: blur(8px); font-variant-numeric: tabular-nums; }
+  .cell .vid .ico { font-size: 9px; }
+  .cell .tick { position: absolute; top: 8px; left: 8px; width: 22px; height: 22px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .9); display: none; place-items: center; font-size: 13px; }
+  body.selecting .cell .tick, .cell:hover .tick { display: grid; }
+  .cell.sel { border: 3px solid var(--accent); }
+  .cell.sel::after { content: ""; position: absolute; inset: 0; background: color-mix(in srgb, var(--accent) 28%, transparent); }
+  .cell.sel .tick { display: grid; background: var(--accent); border-color: var(--accent); color: var(--on-accent); z-index: 1; }
+  .loadmore { padding: 20px; text-align: center; color: var(--secondary); font-size: 12px; }
+
+  /* Viewer and slideshow */
+  .viewer { position: absolute; inset: 0 0 72px 0; z-index: 3; display: none; flex-direction: column; background: rgba(0, 0, 0, .94); overflow: hidden; }
+  .viewer.show { display: flex; animation: fade .18s; }
+  .viewer .blur { position: absolute; inset: -40px; background-size: cover; background-position: center; filter: blur(70px); opacity: .28; }
+  .viewer .bar { position: relative; display: flex; align-items: center; gap: 10px; padding: 14px; color: #fff; }
+  .glass { background: rgba(255, 255, 255, .12); backdrop-filter: blur(16px); border-radius: 999px; }
+  .vbtn { width: 36px; height: 34px; display: grid; place-items: center; font-size: 15px; }
+  .vbtn.round { width: 34px; border-radius: 50%; }
+  .vbtn:disabled { opacity: .4; }
+  .vbtn.red { color: var(--red); }
+  .viewer .stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 0 70px 24px; }
+  .viewer .stage img, .viewer .stage video { max-width: 100%; max-height: 100%; border-radius: 16px; box-shadow: 0 10px 48px rgba(0, 0, 0, .5); }
+  .viewer .stage img.loading { filter: blur(8px); opacity: .55; }
+  .viewer .arrow { position: absolute; top: 50%; transform: translateY(-50%); width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 18px; z-index: 1; }
+  .viewer .prev { left: 16px; } .viewer .next { right: 16px; }
+  .progress { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 22px; border-radius: 20px; color: #fff; font-size: 11px; font-variant-numeric: tabular-nums; }
+  .ring { width: 62px; height: 62px; }
+  .slideshow { position: fixed; inset: 0; z-index: 9; background: #000; display: none; align-items: center; justify-content: center; }
+  .slideshow.show { display: flex; }
+  .slideshow img { max-width: 100%; max-height: 100%; animation: kenburns 4.2s ease-out; }
+  @keyframes kenburns { from { transform: scale(1.04); opacity: .2; } 20% { opacity: 1; } }
+  .slideshow .bar { position: absolute; top: 16px; right: 16px; display: flex; gap: 8px; }
+
+  /* Calls */
+  .dialcol { width: 330px; flex: none; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+  .dialer { padding: 14px; border-radius: 22px; display: flex; flex-direction: column; gap: 12px; }
+  .dialer .num { display: flex; align-items: center; padding: 0 6px; }
+  .dialer .num input { flex: 1; background: none; border: 0; outline: none; color: var(--text); font: 600 24px/1.2 var(--font-rounded); min-width: 0; user-select: text; }
+  .keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .keys button { height: 44px; border-radius: 14px; font: 500 20px/1 var(--font-rounded); background: rgba(255, 255, 255, .06); border: 1px solid var(--stroke); }
+  .keys button:active { background: rgba(255, 255, 255, .14); }
+  .callbtn { height: 44px; border-radius: 999px; background: var(--green); color: #fff; font-size: 15px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .callbtn:disabled { opacity: .5; }
+  .contacts { flex: 1; min-height: 0; padding: 10px; border-radius: 22px; display: flex; flex-direction: column; gap: 8px; }
+  .person { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: 12px; text-align: left; width: 100%; }
+  .person:hover { background: rgba(255, 255, 255, .05); }
+  .person .who { flex: 1; min-width: 0; }
+  .person b { font-size: 13.5px; font-weight: 600; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .person small { font-size: 11.5px; color: var(--secondary); }
+  .person > .ico { color: var(--green); font-size: 13px; }
+  .recents { flex: 1; min-width: 0; border-radius: 22px; display: flex; flex-direction: column; }
+  .recents h3 { font: 700 16px/1.2 var(--font-rounded); padding: 16px 18px 8px; }
+  .callrow .kind { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 15px; flex: none; }
+  .callrow.bad b { color: var(--red); }
+
+  /* Apps */
+  .apps { flex: 1; display: flex; flex-direction: column; gap: 14px; min-height: 0; padding-left: 4px; }
+  .apps .row { display: flex; gap: 12px; align-items: center; }
+  .hintcard { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: 18px; background: color-mix(in srgb, var(--accent) 10%, transparent); border: 1px solid var(--stroke); font-size: 12.5px; color: var(--secondary); line-height: 1.45; }
+  .hintcard .ico { font-size: 18px; color: var(--accent); flex: none; margin-top: 1px; }
+  .appgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 12px; padding-bottom: 8px; }
+  .apptile { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 16px 8px; border-radius: 20px; background: var(--card); border: 1px solid var(--stroke); transition: transform .14s, background .14s, box-shadow .14s; }
+  .apptile:hover { transform: scale(1.04); background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: color-mix(in srgb, var(--accent) 50%, transparent); box-shadow: 0 5px 20px rgba(0,0,0,.25); }
+  .apptile img { width: 58px; height: 58px; border-radius: 14px; }
+  .apptile span { font-size: 12.5px; font-weight: 500; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .iconbtn { width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; background: var(--card); border: 1px solid var(--stroke); font-size: 14px; flex: none; }
+  .iconbtn.sm { width: 32px; height: 32px; border-radius: 10px; font-size: 13px; }
+  .iconbtn.red { color: var(--red); }
+
+  /* Clipboard & notes, history */
+  .col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; min-height: 0; padding-left: 4px; }
+  .rowcard { display: flex; align-items: flex-start; gap: 12px; padding: 12px; border-radius: 16px; background: var(--card); border: 1px solid var(--stroke); }
+  .rowcard .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; user-select: text; }
+  .rowcard p { font-size: 13.5px; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+  .rowcard small { font-size: 11px; color: var(--secondary); }
+  .src { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; flex: none; color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .src.phone { color: var(--accent2); background: color-mix(in srgb, var(--accent2) 14%, transparent); }
+  .notepad { width: 340px; flex: none; padding: 14px; border-radius: 22px; display: flex; flex-direction: column; gap: 10px; }
+  .notepad textarea { flex: 1; resize: none; padding: 10px; border-radius: 14px; background: rgba(255, 255, 255, .04); border: 1px solid var(--stroke); color: var(--text); font: 14px/1.45 var(--font); outline: none; user-select: text; }
+  .hrow { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: 18px; background: var(--card); border: 1px solid var(--stroke); }
+  .hrow .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; user-select: text; }
+  .hrow .meta { display: flex; font-size: 12px; font-weight: 600; color: var(--secondary); }
+  .hrow .meta span:last-child { margin-left: auto; font-weight: 400; color: var(--tertiary); font-size: 11.5px; }
+  .hrow b { font-size: 14px; font-weight: 600; }
+  .hrow p { font-size: 13px; color: rgba(245, 245, 247, .85); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+  /* Device */
+  .devscroll { flex: 1; overflow-y: auto; padding-left: 4px; }
+  .devgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 14px; margin-bottom: 14px; align-items: start; }
+  .dcard { padding: 18px; border-radius: 22px; display: flex; flex-direction: column; gap: 12px; margin-bottom: 14px; }
+  .dcard h3 { font: 700 16px/1.2 var(--font-rounded); }
+  .gauge { width: 100px; height: 100px; flex: none; position: relative; display: grid; place-items: center; }
+  .gauge svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+  .gauge b { font: 700 26px/1 var(--font-rounded); }
+  .tools { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .tool { display: flex; align-items: center; gap: 8px; padding: 11px 12px; border-radius: 13px; background: rgba(255, 255, 255, .07); font-size: 12.5px; font-weight: 600; text-align: left; }
+  .tool.on { background: var(--accent); color: var(--on-accent); }
+  .tool .ico { font-size: 15px; }
+  .segwide { display: flex; gap: 4px; padding: 3px; border-radius: 999px; background: rgba(255, 255, 255, .08); }
+  .segwide button { flex: 1; padding: 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .segwide button.sel { background: var(--accent); color: var(--on-accent); }
+  .map { height: 280px; border-radius: 16px; overflow: hidden; background: rgba(255, 255, 255, .04); display: grid; place-items: center; text-align: center; color: var(--secondary); font-size: 13px; }
+  .map iframe { width: 100%; height: 100%; border: 0; filter: invert(.9) hue-rotate(180deg) contrast(.9); }
+  .bar14 { height: 14px; border-radius: 999px; overflow: hidden; display: flex; gap: 2px; background: rgba(255, 255, 255, .08); }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; }
+  .legend div { display: flex; gap: 6px; align-items: center; }
+  .legend i { width: 9px; height: 9px; border-radius: 50%; }
+  .legend b { font-size: 11.5px; font-weight: 600; display: block; }
+  .legend small { font-size: 11px; color: var(--secondary); }
+  .big { display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 14px; background: rgba(255, 255, 255, .03); border: 1px solid var(--stroke); }
+  .big .thumb { width: 54px; height: 54px; border-radius: 10px; object-fit: cover; flex: none; background: rgba(255,255,255,.08); position: relative; display: grid; place-items: center; overflow: hidden; }
+  .big .thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .big .thumb .ico { position: relative; width: 28px; height: 28px; padding: 7px; border-radius: 50%; background: rgba(0, 0, 0, .45); color: #fff; }
+
+  /* Settings (Mac: SettingsView + MoreSettingsView) */
+  .setscroll { flex: 1; overflow-y: auto; padding-left: 4px; }
+  .setcol { max-width: 760px; display: flex; flex-direction: column; gap: 16px; padding-bottom: 24px; }
+  .section .note { font-size: 11px; color: var(--secondary); line-height: 1.4; }
+  .chkrow { display: flex; align-items: center; gap: 10px; padding: 3px 0; font-size: 13px; }
+  .chkrow .switch { margin-left: auto; }
+  .tagrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .tagrow .tag { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; font-weight: 500; padding: 5px 10px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 15%, transparent); }
+  .tagrow .tag .ico { font-size: 10px; }
+  .themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .theme { display: flex; flex-direction: column; gap: 8px; align-items: center; font-size: 12.5px; color: var(--secondary); }
+  .theme .sw { width: 100%; height: 96px; border-radius: 14px; position: relative; overflow: hidden; border: 1px solid rgba(255, 255, 255, .1); }
+  .theme.sel { color: var(--text); font-weight: 600; }
+  .theme.sel .sw { border: 2px solid var(--accent); }
+  .theme .sw canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .theme .sw .lines { position: absolute; left: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .theme .sw .lines i { display: block; height: 5px; border-radius: 3px; }
+  select.field { width: auto; }
+  textarea.field { resize: vertical; font: 13.5px/1.4 var(--font); }
+
+  /* Notification panel */
+  #panel h2 { font: 700 17px/1.2 var(--font-rounded); }
+  .phead { display: flex; align-items: center; gap: 8px; padding: 18px 16px 12px; }
+  .phead .count { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: var(--accent); color: var(--on-accent); }
+  .phead .grow { flex: 1; }
+  .feed { flex: 1; overflow-y: auto; padding: 0 14px 14px; display: flex; flex-direction: column; gap: 10px; scrollbar-width: thin; }
+  .ncard { display: flex; gap: 10px; padding: 12px; border-radius: 18px; background: var(--card); border: 1px solid var(--stroke); animation: pop .22s; }
+  .ncard .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .ncard .meta { display: flex; gap: 6px; align-items: center; font-size: 11.5px; font-weight: 600; color: var(--secondary); }
+  .ncard .meta span { font-weight: 400; font-size: 11px; color: var(--tertiary); }
+  .ncard .meta button { margin-left: auto; font-size: 9.5px; color: var(--secondary); }
+  .ncard b { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ncard p { font-size: 12.5px; color: rgba(245, 245, 247, .85); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; user-select: text; white-space: pre-wrap; }
+  .reply { display: flex; align-items: center; gap: 6px; margin-top: 5px; padding: 4px 4px 4px 12px; border-radius: 16px; background: rgba(255, 255, 255, .06); border: 1px solid var(--stroke); }
+  .reply input { flex: 1; background: none; border: 0; outline: none; color: var(--text); font: 13px var(--font); min-width: 0; user-select: text; }
+  .reply .send { width: 26px; height: 26px; font-size: 12px; }
+
+  /* Palette */
+  .palette-bg { position: fixed; inset: 0; z-index: 8; display: none; justify-content: center; align-items: flex-start; padding-top: 80px; background: rgba(0, 0, 0, .4); }
+  .palette-bg.show { display: flex; animation: fade .12s; }
+  .palette { width: 600px; max-width: calc(100% - 40px); border-radius: 20px; background: rgba(36, 36, 40, .92); backdrop-filter: blur(30px); border: 1px solid var(--stroke); box-shadow: 0 14px 60px rgba(0, 0, 0, .45); overflow: hidden; animation: pop .2s; }
+  .palette .q { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--stroke); }
+  .palette .q .ico { font-size: 18px; color: var(--secondary); }
+  .palette .q input { flex: 1; background: none; border: 0; outline: none; color: var(--text); font: 17px var(--font); user-select: text; }
+  .kbd { font-size: 11px; font-weight: 600; color: var(--secondary); padding: 3px 7px; border-radius: 7px; background: var(--card); border: 1px solid var(--stroke); }
+  .palette .items { max-height: 380px; overflow-y: auto; padding: 8px; }
+  .palette .grp { font-size: 10.5px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--secondary); padding: 10px 12px 3px; }
+  .palette .it { display: flex; align-items: center; gap: 12px; padding: 6px 10px; border-radius: 12px; width: 100%; text-align: left; }
+  .palette .it .ic { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; font-size: 15px; color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); flex: none; }
+  .palette .it.sel { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  .palette .it.sel .ic { background: var(--accent); color: var(--on-accent); }
+  .palette .it b { font-size: 14px; font-weight: 600; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .palette .it small { font-size: 12px; color: var(--secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+  .palette .it .who { flex: 1; min-width: 0; }
+
+  /* Offline */
+  .offline { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; color: var(--secondary); }
+  .offline .big-serif { color: var(--text); }
+  .toast-msg { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); z-index: 10; padding: 10px 16px; border-radius: 14px; background: rgba(40,40,44,.95); border: 1px solid var(--stroke); font-size: 12.5px; display: none; box-shadow: 0 8px 30px rgba(0,0,0,.4); }
+  .toast-msg.show { display: block; animation: pop .2s; }
+</style>
+</head>
+<body data-tab="messages">
+<div id="main">
+  <canvas class="backdrop-art" id="art"></canvas>
+  <header class="topbar">
+    <h1 id="title">Messages</h1>
+    <div class="chip">
+      <div class="phone"><svg class="ico"><use href="#i-phone"/></svg></div>
+      <div><b id="chip-name">Phone</b><small><i class="dot" id="chip-dot"></i><span id="chip-status">Offline</span><span id="chip-batt"></span></small></div>
+    </div>
+    <button class="quick" data-cmd="palette" title="Search & commands (Ctrl+K)"><svg class="ico"><use href="#i-search"/></svg></button>
+    <button class="quick" data-cmd="reconnect" title="Reconnect to phone"><svg class="ico"><use href="#i-refresh"/></svg></button>
+    <button class="quick needs" id="q-dnd" data-cmd="dnd" title="Do Not Disturb"><svg class="ico"><use href="#i-moon"/></svg></button>
+    <button class="quick needs" id="q-ring" data-cmd="ring" title="Ring phone"><svg class="ico"><use href="#i-bell-waves"/></svg></button>
+    <button class="quick needs" data-cmd="send-files" title="Send a file to the phone"><svg class="ico"><use href="#i-share"/></svg></button>
+    <button class="quick needs" data-cmd="mirror" title="Show phone screen"><svg class="ico"><use href="#i-screen"/></svg></button>
+    <div class="vsep"></div>
+    <button class="quick" id="q-panel" data-cmd="panel" title="Show notifications"><svg class="ico"><use href="#i-bell"/></svg><span class="badge" id="panel-badge" style="display:none"></span></button>
+  </header>
+
+  <div id="content">
+    <div class="offline tab" id="t-offline">
+      <div class="big-serif">Looking for<br>your phone</div>
+      <p style="max-width:340px">Open PhoneBridge on your phone. Both need to be on the same Wi-Fi.</p>
+      <button class="bigbtn" style="flex:none;width:200px" data-cmd="reconnect"><svg class="ico"><use href="#i-refresh"/></svg>Search again</button>
+    </div>
+
+    <!-- Messages -->
+    <section class="tab" id="t-messages"><div class="pane">
+      <div class="threads">
+        <div class="row" style="display:flex;gap:8px">
+          <div class="search" style="flex:1"><svg class="ico"><use href="#i-search"/></svg><input class="field" id="thread-search" placeholder="Search messages"></div>
+          <button class="iconbtn" data-cmd="new-message" title="New message"><svg class="ico"><use href="#i-message"/></svg></button>
+        </div>
+        <div class="list" id="threads"></div>
+      </div>
+      <div class="chat card" id="chat" style="position:relative"></div>
+    </div></section>
+
+    <!-- Photos -->
+    <section class="tab" id="t-photos"><div class="pane">
+      <aside class="rail">
+        <div class="list" id="albums"></div>
+        <div class="dropzone"><svg class="ico"><use href="#i-share"/></svg>Drop files to send to phone</div>
+      </aside>
+      <div class="gridpane">
+        <div class="gridhead">
+          <div class="row">
+            <div style="flex:1;min-width:0"><h2 id="album-title">Library</h2><small class="secondary" id="album-sub">Loading…</small></div>
+            <div id="photo-actions" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end"></div>
+          </div>
+          <div class="seg" id="kinds"><button data-kind="all" class="sel">All</button><button data-kind="photo">Photos</button><button data-kind="video">Videos</button></div>
+        </div>
+        <div class="scroller" id="photo-scroller"><div id="days"></div><div class="loadmore" id="loadmore"></div></div>
+      </div>
+    </div></section>
+
+    <!-- Calls -->
+    <section class="tab" id="t-calls"><div class="pane">
+      <div class="dialcol">
+        <div class="dialer card">
+          <div class="num"><input id="dial" placeholder="Enter a number" inputmode="tel"><button class="iconbtn sm" id="dial-back" style="border:0;background:none" title="Delete"><svg class="ico"><use href="#i-chevron"/></svg></button></div>
+          <div class="keys" id="keys"></div>
+          <button class="callbtn" id="dial-call"><svg class="ico"><use href="#i-call"/></svg>Call</button>
+        </div>
+        <div class="contacts card">
+          <div class="search"><svg class="ico"><use href="#i-search"/></svg><input class="field" id="contact-search" placeholder="Search contacts"></div>
+          <div class="list" id="contacts"></div>
+        </div>
+      </div>
+      <div class="recents card"><h3>Recent</h3><div class="list" id="recents" style="padding:0 10px 10px"></div></div>
+    </div></section>
+
+    <!-- Apps -->
+    <section class="tab" id="t-apps"><div class="pane"><div class="apps">
+      <div class="row">
+        <div class="search" style="width:360px"><svg class="ico"><use href="#i-search"/></svg><input class="field" id="app-search" placeholder="Search apps"></div>
+        <button class="iconbtn" data-cmd="apps-refresh" title="Refresh"><svg class="ico"><use href="#i-refresh"/></svg></button>
+      </div>
+      <div class="hintcard" id="apps-hint"><svg class="ico"><use href="#i-screen"/></svg><span id="apps-hint-text"></span></div>
+      <div class="scroller"><div class="appgrid" id="appgrid"></div></div>
+    </div></div></section>
+
+    <!-- Clipboard & notes -->
+    <section class="tab" id="t-clipboard"><div class="pane">
+      <div class="col">
+        <div style="display:flex;gap:12px;align-items:center">
+          <div class="search" style="flex:1;max-width:420px"><svg class="ico"><use href="#i-search"/></svg><input class="field" id="clip-search" placeholder="Search clipboard"></div>
+          <span style="margin-left:auto" class="caption">In memory only</span>
+          <button class="pill sm" data-cmd="clip-clear"><svg class="ico"><use href="#i-trash"/></svg>Clear</button>
+        </div>
+        <div class="list" id="clips" style="gap:8px"></div>
+      </div>
+      <div class="notepad card">
+        <div class="section-head"><div class="badge"><svg class="ico"><use href="#i-note"/></svg></div>
+          <div><h3>Shared notepad</h3><span class="caption">Same note on the phone — edit either</span></div></div>
+        <textarea id="note" placeholder="Write something…" spellcheck="true"></textarea>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="pill sm" data-cmd="note-todo"><svg class="ico"><use href="#i-check"/></svg>To-do</button>
+          <button class="pill sm" data-cmd="note-copy"><svg class="ico"><use href="#i-clipboard"/></svg>Copy all</button>
+          <span class="caption" style="margin-left:auto" id="note-count">0 chars</span>
+        </div>
+      </div>
+    </div></section>
+
+    <!-- Device -->
+    <section class="tab" id="t-device"><div class="pane"><div class="devscroll" id="device"></div></div></section>
+
+    <!-- Notification history -->
+    <section class="tab" id="t-notifications"><div class="pane"><div class="col">
+      <div style="display:flex;gap:12px;align-items:center">
+        <div class="search" style="flex:1;max-width:420px"><svg class="ico"><use href="#i-search"/></svg><input class="field" id="hist-search" placeholder="Search notifications"></div>
+        <button class="pill sm" style="margin-left:auto" data-cmd="history-clear"><svg class="ico"><use href="#i-trash"/></svg>Clear all</button>
+      </div>
+      <div class="list" id="history" style="gap:8px"></div>
+    </div></div></section>
+
+    <!-- Settings -->
+    <section class="tab" id="t-settings"><div class="pane"><div class="setscroll"><div class="setcol" id="settings"></div></div></div></section>
+
+    <div class="viewer" id="viewer"></div>
+  </div>
+
+  <nav class="dock" id="dock"></nav>
+</div>
+
+<aside id="panel">
+  <div class="phead"><h2>Notifications</h2><span class="count" id="feed-count" style="display:none"></span><span class="grow"></span>
+    <button class="iconbtn sm" data-cmd="feed-clear" title="Clear all"><svg class="ico"><use href="#i-trash"/></svg></button>
+    <button class="iconbtn sm" data-cmd="tab" data-tab="notifications" title="Notification history"><svg class="ico"><use href="#i-history"/></svg></button></div>
+  <div class="feed" id="feed"></div>
+</aside>
+
+<div class="palette-bg" id="palette-bg"><div class="palette">
+  <div class="q"><svg class="ico"><use href="#i-search"/></svg><input id="palette-q" placeholder="Search your phone, or type a command…"><span class="kbd">esc</span></div>
+  <div class="items" id="palette-items"></div>
+</div></div>
+
+<div class="slideshow" id="slideshow"><img id="slide" alt=""><div class="bar">
+  <button class="vbtn round glass" data-cmd="slide-prev"><svg class="ico"><use href="#i-chevron"/></svg></button>
+  <button class="vbtn round glass" data-cmd="slide-next" style="transform:scaleX(-1)"><svg class="ico"><use href="#i-chevron"/></svg></button>
+  <button class="vbtn round glass" data-cmd="slide-stop"><svg class="ico"><use href="#i-close"/></svg></button></div></div>
+
+<div class="sheet-bg" id="sheet"><div class="sheet" role="dialog" aria-modal="true">
+  <h4 id="sheet-title"></h4><p id="sheet-text"></p>
+  <div class="row-btns"><button class="pill" data-cmd="sheet-cancel">Cancel</button><button class="pill destructive" id="sheet-ok" data-cmd="sheet-ok">OK</button></div>
+</div></div>
+<div class="toast-msg" id="toast"></div>
+
+<script src="common.js"></script>
+<script src="themes.js"></script>
+<script src="phone.js"></script>
+</body>
+</html>
