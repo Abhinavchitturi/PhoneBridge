@@ -44,7 +44,7 @@
   <ItemGroup>
     <EmbeddedResource Include="Assets\PhoneBridge.ico" LogicalName="PhoneBridge.ico" />
     <EmbeddedResource Include="Assets\PhoneBridge.png" LogicalName="PhoneBridge.png" />
-    <EmbeddedResource Include="ui\index.html" LogicalName="index.html" />
+    <EmbeddedResource Include="ui\*.html;ui\*.css;ui\*.js" LogicalName="%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

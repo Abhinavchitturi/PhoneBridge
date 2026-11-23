@@ -1,0 +1,133 @@
+/* Shared look for every PhoneBridge page: the Mac app's Midnight theme (mac/Sources/PhoneDesign.swift, Minimal.swift). */
+  :root {
+    --bg: #0B0B0D;
+    --accent: #F5F5F7;
+    --accent2: #A1A1A6;
+    --on-accent: #0B0B0D;
+    --text: #F5F5F7;
+    --secondary: rgba(235, 235, 245, 0.6);
+    --tertiary: rgba(235, 235, 245, 0.32);
+    --card: rgba(255, 255, 255, 0.055);
+    --card-hover: rgba(255, 255, 255, 0.09);
+    --stroke: rgba(255, 255, 255, 0.09);
+    --green: rgb(51, 204, 133);
+    --red: rgb(247, 87, 102);
+    --orange: #FF9F0A;
+    /* Apple's system and serif faces where they exist; their closest Windows counterparts otherwise. */
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    --font-rounded: ui-rounded, "SF Pro Rounded", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    --font-serif: "New York", ui-serif, "Iowan Old Style", Georgia, "Cambria", serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--text); font: 13px/1.35 var(--font);
+    -webkit-font-smoothing: antialiased; user-select: none; overflow: hidden;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: default; }
+  button:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 2px; }
+  svg { display: block; }
+  .ico { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+  .view { position: absolute; inset: 0; display: none; }
+  body[data-view="searching"] #searching, body[data-view="pairing"] #searching,
+  body[data-view="connected"] #connected, body[data-view="settings"] #settings { display: block; }
+
+  .scroll { height: 100%; overflow-y: auto; scrollbar-width: none; }
+  .scroll::-webkit-scrollbar { display: none; }
+  .stack { display: flex; flex-direction: column; gap: 16px; padding: 20px; }
+
+  /* Soft rounded surface with a hairline border (Theme.card / .card()). */
+  .card { background: var(--card); border: 1px solid var(--stroke); border-radius: 18px; }
+
+  /* Capsule buttons (PillButtonStyle). */
+  .pill {
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+    font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: transform .28s cubic-bezier(.3, 1.6, .5, 1), opacity .15s, background .12s;
+  }
+  .pill:hover { background: rgba(255, 255, 255, 0.11); }
+  .pill:active { transform: scale(.95); opacity: .75; }
+  .pill.prominent { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+  .pill.destructive { background: color-mix(in srgb, var(--red) 16%, transparent); color: var(--red); border-color: transparent; }
+  .pill.wide { width: 100%; }
+  .pill .ico { font-size: 15px; }
+
+  .caption { font-size: 11px; color: var(--secondary); line-height: 1.4; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  /* ActionTile: round icon above a short label, on a soft card. */
+  .tile {
+    display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 6px;
+    border-radius: 18px; background: var(--card); border: 1px solid var(--stroke);
+    transition: background .12s, transform .12s;
+  }
+  .tile:hover { background: var(--card-hover); transform: scale(1.02); }
+  .tile:active { transform: scale(.96); }
+  .tile .disc {
+    width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; font-size: 20px;
+    color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+  .tile.filled .disc { background: var(--accent); color: var(--on-accent); }
+  .tile span { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .tile:disabled { opacity: .4; transform: none; }
+
+  .section { padding: 16px; border-radius: 20px; display: flex; flex-direction: column; gap: 10px; }
+  .section-head { display: flex; align-items: center; gap: 10px; }
+  .section-head .badge {
+    width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-size: 15px;
+    background: var(--accent); color: var(--on-accent);
+  }
+  .section-head h3 { font: 700 16px/1.2 var(--font-rounded); }
+  .toggle { display: flex; align-items: center; gap: 12px; padding: 4px 0; }
+  .toggle .text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+  .toggle .text b { font-weight: 500; font-size: 13px; }
+  .switch {
+    position: relative; width: 38px; height: 22px; border-radius: 999px; flex: none;
+    background: rgba(255, 255, 255, 0.16); transition: background .2s;
+  }
+  .switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .4); transition: transform .22s cubic-bezier(.3, 1.4, .5, 1);
+  }
+  .switch[aria-checked="true"] { background: var(--green); }
+  .switch[aria-checked="true"]::after { transform: translateX(16px); }
+  .kv { display: flex; justify-content: space-between; font-size: 13px; padding: 2px 0; }
+  .kv span:last-child { color: var(--secondary); }
+  .row-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+  hr { border: 0; height: 1px; background: var(--stroke); margin: 2px 0; }
+
+  /* Confirmation sheet. */
+  .sheet-bg {
+    position: absolute; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, .45); backdrop-filter: blur(8px);
+  }
+  .sheet-bg.show { display: flex; animation: fade .15s ease-out; }
+  .sheet {
+    width: 340px; padding: 22px; border-radius: 22px; background: #1C1C1F; border: 1px solid rgba(255, 255, 255, .12);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .5); display: flex; flex-direction: column; gap: 10px; animation: pop .22s cubic-bezier(.3, 1.4, .5, 1);
+  }
+  .sheet h4 { font-size: 15px; font-weight: 600; }
+  .sheet p { font-size: 12.5px; color: var(--secondary); line-height: 1.4; }
+  .sheet .row-btns { justify-content: flex-end; margin-top: 8px; }
+  @keyframes fade { from { opacity: 0; } }
+  @keyframes pop { from { transform: scale(.94); opacity: 0; } }
+
+
+  .avatar { border-radius: 50%; display: grid; place-items: center; color: #fff; flex: none; }
+  .avatar .ico { font-size: inherit; }
+  /* Rounded text field (search boxes, composers). */
+  .field {
+    width: 100%; font: inherit; font-size: 13px; color: var(--text); background: rgba(255, 255, 255, 0.07);
+    border: 1px solid var(--stroke); border-radius: 12px; padding: 9px 12px; outline: none; user-select: text;
+  }
+  .field:focus { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: rgba(255, 255, 255, 0.09); }
+  .field::placeholder { color: var(--tertiary); }
+  .secondary { color: var(--secondary); }
+  .empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 80px 20px; color: var(--secondary); text-align: center; }
+  .empty .ico { font-size: 36px; }
+
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--orange); flex: none; }
+  .dot.on { background: var(--green); }

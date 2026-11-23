@@ -27,6 +27,8 @@ internal sealed class TrayApp : ApplicationContext
     private readonly PcMedia _media = new();
     private readonly PcControl _control;
     private readonly InputControl _input = new();
+    /// <summary>The floating call card; null without WebView2 (then calls ring as toasts).</summary>
+    private readonly CallCard? _callCard;
     private readonly Icon _iconOff;
 
     private readonly ToolStripMenuItem _statusItem = new() { Enabled = false };
@@ -131,6 +133,21 @@ internal sealed class TrayApp : ApplicationContext
             },
         };
         _control.Start();
+
+        if (_window != null)
+        {
+            _callCard = new CallCard((t, f) => _link.SendAsync(t, f))
+            {
+                Ended = (name, number, seconds) =>
+                {
+                    if (number == null) return;
+                    var len = seconds >= 60 ? $"{seconds / 60} min {seconds % 60} s" : $"{seconds} s";
+                    _toasts.Show($"Call with {name ?? number} ended", len, "info",
+                        buttons: [new ToastButton("Call back", Toasts.Query(new() { ["a"] = "callback", ["n"] = number })),
+                                  new ToastButton("Text back", Toasts.Query(new() { ["a"] = "textback", ["n"] = number }))]);
+                },
+            };
+        }
         _ = _media.StartAsync();
 
         Refresh();
@@ -250,6 +267,7 @@ internal sealed class TrayApp : ApplicationContext
                 _connected = false;
                 _ringing = false;
                 _toasts.Remove("call", "call");
+                _callCard?.Hide();
                 _transfers.Abort();
                 _input.ReleaseModifiers(); // a phone that dropped mid-hold mustn't leave Alt/Ctrl stuck
                 _media.DeckOff();
@@ -492,7 +510,11 @@ internal sealed class TrayApp : ApplicationContext
                 if (PhoneLink.Str(m, "id") is { } rid) _toasts.Remove("notif", Toasts.TagFor(rid));
                 break;
             case "call":
-                Call(m);
+                if (_callCard != null) _callCard.Update(m); else Call(m);
+                break;
+            case "call_ctl_state":
+                _callCard?.SetControls(m);
+                if (PhoneLink.Str(m, "note") is { Length: > 0 } callNote) _toasts.Info("Call controls", callNote);
                 break;
             case "otp":
                 if (PhoneLink.Str(m, "code") is { } code)
@@ -650,6 +672,12 @@ internal sealed class TrayApp : ApplicationContext
             case "decline":
                 _ = args.GetValueOrDefault("w") == "1" ? _link.SendAsync("call_end", ("waiting", true)) : _link.SendAsync("call_end");
                 break;
+            case "callback" when args.GetValueOrDefault("n") is { } cb:
+                Dial(null, cb);
+                break;
+            case "textback" when args.GetValueOrDefault("n") is { } tb:
+                OpenPhone("messages", tb);
+                break;
             case "reveal" when args.GetValueOrDefault("path") is { } path:
                 Shell.Reveal(path);
                 break;
@@ -661,6 +689,19 @@ internal sealed class TrayApp : ApplicationContext
     {
         if (args.GetValueOrDefault("a") == "notif" && args.GetValueOrDefault("id") is { } id)
             _ = _link.SendAsync("dismiss", ("id", id));
+    }
+
+    /// <summary>Calls a number through the phone, with the "Calling…" card here.</summary>
+    private void Dial(string? name, string number)
+    {
+        _ = _link.SendAsync("dial", ("number", number));
+        _callCard?.ShowOutgoing(name, number);
+    }
+
+    /// <summary>Opens the phone window on a tab (messages / photos / calls / device), optionally with a number to text.</summary>
+    private void OpenPhone(string tab, string? number = null)
+    {
+        _window?.ShowAndActivate();
     }
 
     // MARK: Files

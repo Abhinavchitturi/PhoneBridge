@@ -1,8 +1,5 @@
 using System.Runtime.InteropServices;
-using System.Text.Json;
 using System.Text.Json.Nodes;
-using Microsoft.Web.WebView2.Core;
-using Microsoft.Web.WebView2.WinForms;
 
 namespace PhoneBridge;
 
@@ -16,23 +13,12 @@ namespace PhoneBridge;
 internal sealed class MainWindow : Form
 {
     private static readonly Color Background = Color.FromArgb(0x0B, 0x0B, 0x0D);
-
-    private readonly WebView2 _web;
-    private bool _ready;
-    private string? _pendingState;
+    private readonly WebHost _host;
 
     /// <summary>(command, the whole message) — e.g. ("ring", …), ("set", {key, value}), ("drop", {paths}).</summary>
     public event Action<string, JsonObject>? Command;
 
-    /// <summary>True when the WebView2 runtime is installed (it ships with Windows 11 and current Windows 10).</summary>
-    public static bool RuntimeAvailable
-    {
-        get
-        {
-            try { return !string.IsNullOrEmpty(CoreWebView2Environment.GetAvailableBrowserVersionString()); }
-            catch (Exception) { return false; }
-        }
-    }
+    public static bool RuntimeAvailable => WebHost.RuntimeAvailable;
 
     public MainWindow(Icon icon)
     {
@@ -46,81 +32,16 @@ internal sealed class MainWindow : Form
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Background;
         ShowInTaskbar = true;
-
-        _web = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Background };
-        Controls.Add(_web);
-        _ = InitAsync();
-    }
-
-    private async Task InitAsync()
-    {
-        try
+        _host = new WebHost("index.html", (cmd, m) =>
         {
-            var env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(Log.Dir, "WebView2"));
-            await _web.EnsureCoreWebView2Async(env);
-            var core = _web.CoreWebView2;
-            var s = core.Settings;
-            s.AreDefaultContextMenusEnabled = false;
-            s.IsZoomControlEnabled = false;
-            s.AreBrowserAcceleratorKeysEnabled = false;
-            s.IsStatusBarEnabled = false;
-            s.IsSwipeNavigationEnabled = false;
-#if !DEBUG
-            s.AreDevToolsEnabled = false;
-#endif
-            core.WebMessageReceived += OnMessage;
-            core.NewWindowRequested += (_, e) => e.Handled = true;
-            // The page is the whole app: never navigate away (e.g. a file dropped outside the drop handler).
-            core.NavigationStarting += (_, e) => { if (_ready) e.Cancel = true; };
-            using var stream = typeof(MainWindow).Assembly.GetManifestResourceStream("index.html")
-                               ?? throw new InvalidOperationException("ui/index.html is not embedded");
-            using var reader = new StreamReader(stream);
-            core.NavigateToString(await reader.ReadToEndAsync());
-        }
-        catch (Exception e)
-        {
-            Log.Write("window failed to start: " + e);
-        }
-    }
-
-    private void OnMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
-    {
-        JsonObject? m;
-        try { m = JsonNode.Parse(e.WebMessageAsJson) as JsonObject; }
-        catch (JsonException) { return; }
-        if (m?["cmd"] is not JsonValue v || !v.TryGetValue<string>(out var cmd)) return;
-
-        if (cmd == "ready")
-        {
-            _ready = true;
-            if (_pendingState != null) _web.CoreWebView2.PostWebMessageAsJson(_pendingState);
-            _pendingState = null;
-            return;
-        }
-        if (cmd == "drop")
-        {
-            // The page can't see file paths; WebView2 hands them to us alongside the message.
-            var paths = new JsonArray();
-            if (e.AdditionalObjects != null)
-                foreach (var o in e.AdditionalObjects)
-                    if (o is CoreWebView2File f && !string.IsNullOrEmpty(f.Path)) paths.Add(f.Path);
-            m["paths"] = paths;
-        }
-        if (cmd == "hide")
-        {
-            Hide();
-            return;
-        }
-        Command?.Invoke(cmd, m);
+            if (cmd == "hide") Hide();
+            else Command?.Invoke(cmd, m);
+        });
+        Controls.Add(_host.View);
     }
 
     /// <summary>Sends the app's current state to the page (kept until the page is ready).</summary>
-    public void PushState(JsonObject state)
-    {
-        var json = new JsonObject { ["type"] = "state", ["state"] = state }.ToJsonString();
-        if (_ready && _web.CoreWebView2 != null) _web.CoreWebView2.PostWebMessageAsJson(json);
-        else _pendingState = json;
-    }
+    public void PushState(JsonObject state) => _host.Push("state", new JsonObject { ["state"] = state });
 
     public void ShowAndActivate()
     {
@@ -130,7 +51,7 @@ internal sealed class MainWindow : Form
         TopMost = true;
         Activate();
         TopMost = false;
-        _web.Focus();
+        _host.View.Focus();
     }
 
     public void Toggle()
