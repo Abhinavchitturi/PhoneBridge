@@ -19,7 +19,7 @@ let app = {
   settings: {}, streaming: "", micStatus: "Off", presence: "", version: "",
 };
 const P = {
-  tab: "messages", panel: true, threads: [], selectedThread: null, messages: [], drafts: {}, compose: null, readMarks: {},
+  tab: "messages", panel: false, threads: [], selectedThread: null, messages: [], drafts: {}, compose: null, readMarks: {},
   photos: [], photoTotal: 0, albums: [], album: null, kind: "all", loadingPhotos: false, selection: new Set(), selecting: false,
   downloaded: {}, progress: {}, viewing: null, extra: {}, slide: null,
   calls: [], contacts: [], device: null, biggest: [], location: null, locating: false, locationError: null,
@@ -27,6 +27,8 @@ const P = {
   search: { threads: "", contacts: "", apps: "", clips: "", history: "" }, palette: { open: false, q: "", index: 0 },
 };
 try { P.readMarks = JSON.parse(localStorage.getItem("smsReadMarks") || "{}"); } catch (e) { /* private window */ }
+// Notifications: tucked into the right edge by default (hover to see them); the bell docks it in a wide window.
+try { P.panel = localStorage.getItem("panelDocked") === "1"; } catch (e) { /* private window */ }
 
 const tx = (m) => send("tx", { m });
 const rel = new Intl.RelativeTimeFormat(undefined, { numeric: "auto", style: "short" });
@@ -443,6 +445,9 @@ function renderPanel() {
   const pb = $("#panel-badge");
   pb.textContent = Math.min(feed.length, 99);
   pb.style.display = !panelShown() && feed.length ? "" : "none";
+  $("#edge-n").textContent = Math.min(feed.length, 99);
+  $("#edge-n").style.display = feed.length ? "" : "none";
+  $("#edge-grip").classList.toggle("has", feed.length > 0);
   const drafts = {};
   $$(".reply input").forEach((i) => { drafts[i.dataset.key] = { v: i.value, f: document.activeElement === i }; });
   $("#feed").innerHTML = feed.map((i) => `<div class="ncard">${avatar(i.app, 32)}<div class="body">
@@ -601,22 +606,38 @@ function confirmSheet(title, text, ok, run) {
 }
 
 // ---------- Rendering ----------
-// The panel takes 320px beside the content when there's room for both; otherwise it floats over it (see body.narrow).
+// The panel sits docked beside the content (320px) when the window is wide and it's turned on. Otherwise it floats:
+// tucked into the right edge as a slim grip, sliding out when the pointer reaches the edge (a "peek", which closes
+// again when the pointer leaves) or when the bell is clicked (stays until you click elsewhere).
 const isNarrow = () => window.innerWidth < 1060;
-const panelShown = () => (isNarrow() ? !!P.panelOverlay : P.panel);
+const isFloating = () => isNarrow() || !P.panel;
+const panelShown = () => (isFloating() ? !!P.panelOverlay : true);
 function layoutPanel() {
-  document.body.classList.toggle("narrow", isNarrow());
+  document.body.classList.toggle("floating", isFloating());
   document.body.classList.toggle("no-panel", !panelShown());
+  $("#q-panel").classList.toggle("on", !isFloating() || !!P.panelOverlay);
 }
+function openOverlay(peek) { P.panelOverlay = true; P.peek = peek; layoutPanel(); renderPanel(); }
+function closeOverlay() { clearTimeout(P.peekTimer); if (!P.panelOverlay) return; P.panelOverlay = false; P.peek = false; layoutPanel(); renderPanel(); }
 let wasNarrow = null;
 window.addEventListener("resize", () => {
   const n = isNarrow();
-  if (n !== wasNarrow) { wasNarrow = n; P.panelOverlay = false; layoutPanel(); $("#q-panel").classList.toggle("on", panelShown()); }
+  if (n !== wasNarrow) { wasNarrow = n; P.panelOverlay = false; layoutPanel(); }
 });
+// The edge: a short pause before opening, so sweeping the pointer past the window's edge doesn't flash it open.
+$("#edge").addEventListener("mouseenter", () => { clearTimeout(P.peekTimer); P.peekTimer = setTimeout(() => openOverlay(true), 140); });
+$("#edge").addEventListener("mouseleave", () => { if (!P.panelOverlay) clearTimeout(P.peekTimer); });
+$("#panel").addEventListener("mouseenter", () => clearTimeout(P.peekTimer));
+$("#panel").addEventListener("mouseleave", () => {
+  // A peek closes when the pointer leaves, unless you're typing a reply in it.
+  if (!P.peek || $("#panel").contains(document.activeElement)) return;
+  clearTimeout(P.peekTimer); P.peekTimer = setTimeout(closeOverlay, 350);
+});
+$("#panel").addEventListener("focusin", () => { P.peek = false; }); // started typing: keep it open
 // A click outside the floating panel closes it, like a popover.
 document.addEventListener("mousedown", (e) => {
-  if (!isNarrow() || !P.panelOverlay || e.target.closest("#panel, #q-panel")) return;
-  P.panelOverlay = false; layoutPanel(); $("#q-panel").classList.toggle("on", false);
+  if (!isFloating() || !P.panelOverlay || e.target.closest("#panel, #q-panel, #edge")) return;
+  closeOverlay();
 });
 function render() {
   const tab = P.tab;
@@ -630,7 +651,6 @@ function render() {
   $$(".quick.needs").forEach((b) => (b.disabled = !app.connected));
   $("#q-dnd").classList.toggle("on", !!app.dnd);
   $("#q-ring").classList.toggle("on", !!app.ringing);
-  $("#q-panel").classList.toggle("on", panelShown());
   const unread = P.threads.filter(isUnread).length;
   $("#dock").innerHTML = `<button class="item glyph" data-cmd="tab" data-tab="settings" title="Themes (Settings)"><svg width="26" height="26" viewBox="0 0 28 28"><path d="M5 17.6Q14 -0.4 23 17.6" fill="none" stroke="var(--accent)" stroke-width="2.4" stroke-linecap="round"/><circle cx="5" cy="17.6" r="3" fill="var(--accent)"/><circle cx="23" cy="17.6" r="3" fill="var(--accent)"/></svg></button><i class="sep"></i>` +
     TABS.map(([t, title, ic]) => `<button class="item${tab === t ? " sel" : ""}" data-cmd="tab" data-tab="${t}" title="${title}">${icon(ic)}<span>${title}</span>${t === "messages" && unread ? `<i class="badge">${Math.min(unread, 99)}</i>` : ""}</button>`).join("") +
@@ -754,8 +774,10 @@ document.addEventListener("click", (e) => {
   switch (ds.cmd) {
     case "tab": return setTab(ds.tab);
     case "panel":
-      // In a narrow window the panel floats over the content and is opened just for a look; the setting is for wide ones.
-      if (isNarrow()) P.panelOverlay = !P.panelOverlay; else P.panel = !P.panel;
+      // Wide window: dock or undock it (remembered). Narrow: open it over the content, or tuck it away.
+      if (isNarrow()) { if (P.panelOverlay) closeOverlay(); else openOverlay(false); return; }
+      P.panel = !P.panel; P.panelOverlay = false;
+      try { localStorage.setItem("panelDocked", P.panel ? "1" : "0"); } catch (e) { /* ignore */ }
       return render();
     case "palette": return openPalette(!P.palette.open);
     case "dnd": return tx({ t: "phone_dnd", on: !app.dnd });
