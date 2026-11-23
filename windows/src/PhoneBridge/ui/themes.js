@@ -361,3 +361,6 @@ function orbExtras(ctx, cx, cy, R, time, t) {
   }
   return false;
 }
+
+// Previews (tools/inline-ui.py page demo theme) pick a theme.
+if (window.__theme) applyTheme(window.__theme);

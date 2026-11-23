@@ -51,39 +51,55 @@ match. To look at the design without Windows, open `ui/index.html?demo=connected
 If the phone is paired with other computers and is using one of them, the menu says so and tells you where to switch
 (phone → Computers → Connect). The phone is the one that decides which computer it talks to.
 
-## What works in this version
+## What's in it
+
+Everything the Mac app does, except where Windows has no equivalent (noted below).
 
 | Feature | Notes |
 |---|---|
 | Finding the phone | mDNS (`_phonebridge._tcp`), the last address that worked, the default gateway (when the PC is on the phone's hotspot), and the phone's Tailscale addresses |
 | Pairing | Six-digit code on both screens, shown in the window. Waits for the phone's "pair" before showing a code, like the Mac app. Handles "busy" and "unpaired" refusals with a short status line |
-| Secrets | The PC's X25519 identity and the paired phone's key are stored in `%APPDATA%\PhoneBridge\secrets.bin`, encrypted with DPAPI for the signed-in Windows user |
-| Phone notifications | Shown as Windows toasts with the app's icon. Reply box for messaging apps, the notification's own buttons, and dismissing one here clears it on the phone. Turn off from the menu |
+| Secrets | The PC's identity and the paired phone's key in `%APPDATA%\PhoneBridge\secrets.bin`, and notification history in `history.bin`, encrypted with DPAPI for the signed-in Windows user |
+| **Phone window** | Messages (threads, send, new message, quick replies), Photos & Videos (albums, grid by day, viewer, slideshow, download, copy, delete, copy text from a photo with Windows OCR), Calls (dialer, contacts, recents), Phone Apps, Clipboard history & shared notepad, Device (battery with time estimate, flashlight, ringer, Do Not Disturb, Find my phone on a map, storage and biggest videos), Notification History, Settings; the live notifications panel and Ctrl+K search |
+| Notifications | Windows toasts with reply box, the app's buttons, and dismiss-syncs-to-phone; or the **chat reply pop-up** in the corner for chat apps, with three **suggested replies** written by a local model (needs [Ollama](https://ollama.com) — Windows has no built-in model apps can use; nothing leaves the PC). Mute per app or keyword; read new messages aloud |
+| Calls | A floating call card like the Mac's: Answer / Decline, the time talked, Mute / Speaker / Hold / End, call waiting, and Call back / Text back after a call. Calls you dial here show "Calling…" |
+| **The phone controls the PC** | Lock, sleep, volume, mute, play/pause/next/prev, the phone's player screen (seek, shuffle, repeat) for whatever Windows' media controls see (Spotify, browsers, Media Player…), Find my PC, ±10 s / Esc / full screen for the video in front, send the browser tab to the phone, PC battery alerts, and shortcuts (files you put in `%APPDATA%\PhoneBridge\Shortcuts`) |
+| Trackpad & keyboard from the phone | Mac shortcuts are translated: ⌘C → Ctrl+C, ⌘ held + Tab → Alt+Tab, ⌘Q → Alt+F4; three-finger swipes do back/forward, Task View and show desktop |
+| Phone apps & screen | Apps open in their own windows through scrcpy over Wireless debugging (`winget install Genymobile.scrcpy`, then the one-time setup in Settings); without it, the phone's screen is shown in a window (H.264 decoded by WebCodecs) and you can type into it. Type on phone |
 | Clipboard | Both ways, text and images. Content marked by password managers as excluded from clipboard monitoring isn't sent. One-time codes from SMS are copied, kept out of clipboard history, and cleared after a minute |
-| Battery | In the menu and the tray tooltip |
-| Files | **Send files to phone…** (lands in the phone's Downloads). Files from the phone land in your Downloads folder; the toast opens the folder |
-| Calls | Incoming calls and call waiting ring as a toast with **Answer** / **Decline** |
-| Find my phone | **Ring my phone** |
+| Files | Send files (menu, drag onto the window, or right-click → **Send to → PhoneBridge** in Explorer); files from the phone land in Downloads; new PC screenshots go to the phone |
+| Lock when the phone walks away | The phone's Bluetooth beacon; locks after 20 s idle when the phone is away, wakes the screen when it's back |
+| Phone as microphone | Plays the phone's mic into the free [VB-CABLE](https://vb-audio.com/Cable/) virtual device; pick "CABLE Output" as the microphone in Zoom, Meet or Teams |
+| Do Not Disturb | When Windows holds notifications back (Do Not Disturb, presenting, full-screen), the phone's Do Not Disturb turns on too |
+| Themes | All six themes, with their drawings and animated banners; switching here switches the phone, and the other way round |
+| **Updates** | Checks GitHub releases when it opens, when the phone connects and every 4 hours. When a newer release has `PhoneBridge-Windows.exe` it asks "Update now?", downloads it, checks it against the SHA-256 GitHub lists for that file, swaps it in and restarts |
 
-Logs: `%LOCALAPPDATA%\PhoneBridge\phonebridge.log`.
+Command line: `PhoneBridge.exe file1 file2` sends files, `PhoneBridge.exe --text "hello"` puts text on the phone's clipboard
+(a running PhoneBridge picks the request up). Logs: `%LOCALAPPDATA%\PhoneBridge\phonebridge.log`.
 
-## Not yet on Windows
+## Releases
 
-These need Windows-specific work and are left for later:
+`release.sh` (on the Mac) builds `release/PhoneBridge-Windows.exe` next to the `.dmg` and `.apk` when the .NET 10 SDK is
+installed, and checks that its version (`<Version>` in `src/PhoneBridge/PhoneBridge.csproj`) matches the Mac and Android
+versions. Upload it with the others; the updater looks for exactly that file name:
 
-- **The phone controlling the PC**: media keys, volume, lock, sleep, the media deck, mouse/keyboard from the phone (the phone gets a short "not on Windows yet" note if you try)
-- **Phone screen and apps on the PC**: screen casting, ADB/scrcpy app streaming, "Type on phone"
-- **Call audio on the PC**, the call panel with timer, and texting back or calling back from a missed call
-- The phone window (messages, photos, call log, contacts, device tools), clipboard history, notification history and per-app muting, smart replies, read-aloud
-- Shared notes, themes, Presence (Bluetooth proximity), the command-line / Shortcuts server
-- **Auto-update**: the Mac and Android apps update from GitHub Releases; the Windows app doesn't yet, and `release.sh` doesn't build or upload it
-- An installer, code signing (SmartScreen will warn about an unsigned `.exe`), and Start-menu toast activation after the app has quit (toast buttons work while PhoneBridge is running, which is always while it's in the tray)
+```bash
+gh release create v<version> release/PhoneBridge.dmg release/PhoneBridge.apk release/PhoneBridge-Windows.exe --title "PhoneBridge <version>" --notes "..."
+```
+
+## Not on Windows (yet)
+
+- **Call audio on the PC**: the Mac app doesn't have it either (macOS refuses Bluetooth call audio); both apps have call control
+- An installer and code signing: SmartScreen warns about an unsigned `.exe` the first time
+- Clicking an old notification in Action Center after PhoneBridge has quit does nothing (buttons work while it runs, which is always while it's in the tray)
+- Drag a photo out of the phone window into Explorer (use Download or Copy)
 
 ## Code
 
 | Path | What's inside |
 |---|---|
-| `src/PhoneBridge.Core` | Everything that isn't Windows UI, and runs on any OS: X25519 (a port of the phone's `X25519.kt`), session crypto (`Keys.cs`, matching `mac/Sources/Crypto.swift`), framing, mDNS discovery, the link (`PhoneLink.cs`, matching `mac/Sources/PhoneLink.swift`), file transfers |
-| `src/PhoneBridge` | The tray app: the window (`MainWindow.cs` hosting `ui/index.html`), tray menu, toasts, clipboard, DPAPI, start with Windows; `PairDialog.cs` is the fallback without WebView2 |
-| `tests/PhoneBridge.Core.Tests` | Crypto checked against fixed vectors from the Mac's CryptoKit code (`tools/vectors.swift`) and RFC 7748; the whole handshake against a fake phone ported from the phone's `Link.kt`; framing, mDNS (including a real phone's answer) and transfers |
-| `tools/vectors.swift` | Regenerates the crypto vectors on a Mac: `swift tools/vectors.swift` |
+| `src/PhoneBridge.Core` | Everything that isn't Windows UI, and runs on any OS: X25519 (a port of the phone's `X25519.kt`), session crypto (`Keys.cs`, matching `mac/Sources/Crypto.swift`), framing, mDNS discovery, the link (`PhoneLink.cs`), file transfers, call rules (`CallLogic.cs`), history / clipboard / notes / battery (`Features.cs`), release parsing (`Releases.cs`) |
+| `src/PhoneBridge` | The tray app. Windows hosting the pages: `MainWindow.cs`, `PhoneWindow.cs`, `CallCard.cs`, `ChatPopup.cs`, `CastWindow.cs`. The phone's remote control: `Control/`. Glue: `TrayApp*.cs`. Plus `Streaming.cs` (scrcpy), `Updater.cs`, `SmartReply.cs`, `Services.cs` (speech, OCR, Do Not Disturb) |
+| `src/PhoneBridge/ui` | The pages, drawn like the Mac app: `index.html` (main window), `phone.html` + `phone.js` (phone window), `call.html`, `chat.html`, `cast.html`, with `common.css` / `common.js` (design tokens, components, icons) and `themes.js` |
+| `tests/PhoneBridge.Core.Tests` | Crypto against fixed vectors from the Mac's CryptoKit code (`tools/vectors.swift`) and RFC 7748; the whole handshake against a fake phone ported from `Link.kt`; the Mac's call-rule checks; framing, mDNS (including a real phone's answer), transfers, history, notes, battery, releases |
+| `tools/inline-ui.py` | Opens any page in a browser without Windows: `python3 tools/inline-ui.py phone.html photos batman > preview/p.html` |

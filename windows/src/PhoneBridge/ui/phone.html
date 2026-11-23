@@ -20,7 +20,7 @@
 
   /* Top bar */
   .topbar { display: flex; align-items: center; gap: 12px; padding: 22px 18px 12px 26px; position: relative; z-index: 1; }
-  .topbar h1 { font: 700 26px/1.1 var(--font-rounded); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .topbar h1 { font: 700 clamp(18px, 2.1vw, 26px)/1.1 var(--font-rounded); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .chip { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-radius: 16px; background: var(--card); border: 1px solid var(--stroke); }
   .chip .phone { width: 26px; height: 34px; border-radius: 8px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; font-size: 14px; }
   .chip b { font-size: 13px; font-weight: 600; display: block; white-space: nowrap; }
@@ -35,7 +35,7 @@
   .badge { font-size: 9.5px; font-weight: 700; color: #fff; padding: 1.5px 5px; border-radius: 999px; background: var(--red); line-height: 1.2; }
 
   /* Content and dock */
-  #content { flex: 1; min-height: 0; position: relative; padding-bottom: 72px; }
+  #content { flex: 1; min-height: 0; position: relative; padding-bottom: 72px; z-index: 1; }
   .tab { position: absolute; inset: 0 0 72px 0; display: none; animation: tabin .32s cubic-bezier(.2, .9, .3, 1); }
   .tab.show { display: flex; }
   @keyframes tabin { from { opacity: 0; transform: scale(.985) translateY(6px); } }
@@ -296,7 +296,7 @@
   .palette .it .who { flex: 1; min-width: 0; }
 
   /* Offline */
-  .offline { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; color: var(--secondary); }
+  .offline.show { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; color: var(--secondary); }
   .offline .big-serif { color: var(--text); }
   .toast-msg { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); z-index: 10; padding: 10px 16px; border-radius: 14px; background: rgba(40,40,44,.95); border: 1px solid var(--stroke); font-size: 12.5px; display: none; box-shadow: 0 8px 30px rgba(0,0,0,.4); }
   .toast-msg.show { display: block; animation: pop .2s; }

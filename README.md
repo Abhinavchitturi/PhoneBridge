@@ -26,7 +26,7 @@
 
 You need **both**: the Mac app and the phone app. Install them, then pair them once ([steps below](#-get-started-in-3-steps)). Older versions and each file's SHA-256 are on the [Releases page](https://github.com/Abhinavchitturi/PhoneBridge/releases).
 
-> 🪟 **Windows (preview):** a Windows tray app is in [`windows/`](windows). It isn't in the releases yet, so for now you [build it yourself](#windows-app-preview). It covers the basics: pairing, notifications, clipboard, battery, files and incoming calls.
+> 🪟 **Windows (preview):** a Windows app is in [`windows/`](windows), with the same design and features as the Mac app (see [`windows/README.md`](windows/README.md)). Once a release includes `PhoneBridge-Windows.exe` it's a one-file download that keeps itself up to date; until then, [build it yourself](#windows-app-preview).
 
 ---
 
@@ -249,13 +249,13 @@ Copy `PhoneBridge.exe` to a Windows 10 (1903+) or Windows 11 PC and run it. On t
 
 **Release files**
 ```bash
-./release.sh   # builds release/PhoneBridge.dmg and release/PhoneBridge.apk
+./release.sh   # builds release/PhoneBridge.dmg, release/PhoneBridge.apk and (with the .NET 10 SDK) release/PhoneBridge-Windows.exe
 ```
 To publish:
 ```bash
-gh release create v<version> release/PhoneBridge.dmg release/PhoneBridge.apk --generate-notes
+gh release create v<version> release/PhoneBridge.dmg release/PhoneBridge.apk release/PhoneBridge-Windows.exe --generate-notes
 ```
-The plain-named `PhoneBridge.dmg` and `PhoneBridge.apk` copies keep the download links at the top of this page pointing to the latest version.
+The plain-named `PhoneBridge.dmg`, `PhoneBridge.apk` and `PhoneBridge-Windows.exe` copies keep the download links at the top of this page pointing to the latest version, and all three apps update themselves from them.
 
 ### Project layout
 
