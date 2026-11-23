@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
+using PhoneBridge.Control;
 using PhoneBridge.Core;
 using LinkState = PhoneBridge.Core.LinkState;
 
@@ -23,6 +24,9 @@ internal sealed class TrayApp : ApplicationContext
     private readonly Toasts _toasts;
     private readonly ClipboardSync _clip;
     private readonly Icon _icon;
+    private readonly PcMedia _media = new();
+    private readonly PcControl _control;
+    private readonly InputControl _input = new();
     private readonly Icon _iconOff;
 
     private readonly ToolStripMenuItem _statusItem = new() { Enabled = false };
@@ -48,7 +52,6 @@ internal sealed class TrayApp : ApplicationContext
     private readonly MainWindow? _window;
     /// <summary>A pairing request shown in the window: (phone, code, the answer).</summary>
     private (string Name, string Code, TaskCompletionSource<bool> Answer)? _pairing;
-    private DateTime _lastMacOnlyHint = DateTime.MinValue;
 
     private TrayApp(LinkStore store)
     {
@@ -109,6 +112,26 @@ internal sealed class TrayApp : ApplicationContext
             $"“{name}” tried to connect. PhoneBridge only talks to your paired phone — use Forget phone first if you're switching phones."), null);
         _link.Refused += (why, name) => _ui.Post(_ => Refused(why, name), null);
         _link.AskPairing = AskPairing;
+
+        // The phone's computer remote: commands, trackpad/keyboard, what's playing here, the player screen.
+        _media.Send = m => _ = _link.SendAsync(m);
+        _control = new PcControl(_media)
+        {
+            Send = m => _ = _link.SendAsync(m),
+            Notify = (t, b) => _ui.Post(_ => _toasts.Info(t, b), null),
+            OnCall = on => { if (on) _media.PauseForCall(); else _media.ResumeAfterCall(); },
+            Deck = (cmd, m) =>
+            {
+                switch (cmd)
+                {
+                    case "deck_on": _media.DeckOn(); break;
+                    case "deck_off": _media.DeckOff(); break;
+                    default: _ = _media.DeckDo(PhoneLink.Str(m, "action"), m["value"]); break;
+                }
+            },
+        };
+        _control.Start();
+        _ = _media.StartAsync();
 
         Refresh();
         _link.Start();
@@ -228,6 +251,8 @@ internal sealed class TrayApp : ApplicationContext
                 _ringing = false;
                 _toasts.Remove("call", "call");
                 _transfers.Abort();
+                _input.ReleaseModifiers(); // a phone that dropped mid-hold mustn't leave Alt/Ctrl stuck
+                _media.DeckOff();
                 _status = "Looking for your phone…";
                 ClosePairDialog();
                 if (_pairing is { } p) { _pairing = null; p.Answer.TrySetResult(false); }
@@ -243,6 +268,8 @@ internal sealed class TrayApp : ApplicationContext
                 _phoneName = name;
                 _status = $"Connected to {name}";
                 _ = _link.SendAsync("update_hint"); // connected: the phone looks for a new version, as with the Mac
+                _control.SendState(force: true);
+                _media.Resend();
                 break;
         }
         Refresh();
@@ -397,6 +424,7 @@ internal sealed class TrayApp : ApplicationContext
             case "ring": _ = _link.SendAsync(_ringing ? "ring_stop" : "ring"); break;
             case "send-files": PickFiles(); break;
             case "send-clipboard": SendClipboard(); break;
+            case "send-tab": _control.SendTabToPhone(); break;
             case "open-downloads": Shell.Reveal(_transfers.Folder); break;
             case "reconnect": _link.Reconnect(); break;
             case "forget": Forget(confirmed: true); break;
@@ -516,13 +544,10 @@ internal sealed class TrayApp : ApplicationContext
                 _toasts.Info(ok ? "SMS sent" : "SMS failed", PhoneLink.Str(m, "error") ?? PhoneLink.Str(m, "to") ?? "");
                 break;
             case "mac_cmd":
-                // The phone's computer remote (lock, sleep, media, volume…) isn't on Windows yet: say so, at most every 30 s.
-                if (DateTime.UtcNow - _lastMacOnlyHint > TimeSpan.FromSeconds(30))
-                {
-                    _lastMacOnlyHint = DateTime.UtcNow;
-                    _ = _link.SendAsync("alert", ("title", "Not on Windows yet"),
-                        ("body", "Controlling the computer from the phone works with the Mac app for now."));
-                }
+                _control.Handle(m);
+                break;
+            case "input":
+                _input.Handle(m);
                 break;
         }
     }
@@ -691,6 +716,8 @@ internal sealed class TrayApp : ApplicationContext
     private void Quit()
     {
         _link.Dispose();
+        _control.Stop();
+        _input.ReleaseModifiers();
         _tray.Visible = false;
         _window?.Dispose();
         _clip.Dispose();

@@ -7,6 +7,8 @@
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <SupportedOSPlatformVersion>10.0.18362.0</SupportedOSPlatformVersion>
     <UseWindowsForms>true</UseWindowsForms>
+    <!-- Only for System.Windows.Automation (reading the browser's address bar for "Send tab"); no WPF UI. -->
+    <UseWPF>true</UseWPF>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -28,6 +30,12 @@
     <DebugType>embedded</DebugType>
     
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- UseWPF drops System.IO from the implicit usings (WPF has its own Path); bring it back. -->
+    <Using Include="System.IO" />
+    <Using Remove="System.Windows" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../PhoneBridge.Core/PhoneBridge.Core.csproj" />
