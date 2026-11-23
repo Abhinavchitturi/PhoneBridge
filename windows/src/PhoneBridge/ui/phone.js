@@ -515,6 +515,9 @@ function renderSettings() {
     section("Away from home", "compass", "Install Tailscale (free) on this PC and the phone and sign in with the same account. PhoneBridge then reconnects over it whenever you're not on the same Wi-Fi — college, office, anywhere.",
       `<div class="row-btns"><button class="pill sm" data-url="https://tailscale.com/download">Get Tailscale</button></div>`),
     section("Right-click menu", "share", "", `<p class="note">In File Explorer, right-click files → Send to → PhoneBridge. PhoneBridge adds itself to the Send to menu when it starts.</p>`),
+    section("Updates", "download", "PhoneBridge keeps itself up to date from GitHub, like the phone app. It checks when it opens, when the phone connects and every few hours.",
+      `<div class="chkrow"><span>${app.update ? `Version ${esc(app.update)} is available (you have ${esc(app.version)})` : `You have version ${esc(app.version)}`}</span></div>
+      <div class="row-btns">${app.update ? `<button class="pill sm prominent" data-cmd="update-install">${icon("download")}Update now</button>` : ""}<button class="pill sm" data-cmd="update-check">Check for updates</button></div>`),
     section("This PC", "laptop", "", sw("autostart", s.autostart, "Start with Windows") +
       `<div class="row-btns"><button class="pill sm destructive" data-cmd="forget-ask">${icon("phone-slash")}Forget phone</button><button class="pill sm" data-cmd="open-log">Open log</button><button class="pill sm" data-cmd="quit">Quit PhoneBridge</button></div>
       <p class="note">PhoneBridge for Windows ${esc(app.version)}</p>`),
@@ -548,7 +551,7 @@ function paletteItems() {
   for (const t of P.threads) { if (cap("Messages", 4)) break; if (m(t.name || t.address) || m(t.snippet)) out.push({ ic: "message", title: t.name || t.address, sub: t.snippet, group: "Messages", run: () => { setTab("messages"); selectThread(t.thread); } }); }
   const dq = digits(q);
   for (const c of P.contacts) { if (cap("Contacts", 5)) break; if (m(c.name) || (dq && digits(c.number).includes(dq))) out.push({ ic: "person", title: c.name, sub: `Call ${c.number}`, group: "Contacts", run: () => dial(c.number) }); }
-  for (const a of P.apps) { if (cap("Apps", 5)) break; if (m(a.name)) out.push({ ic: "screen", title: a.name, sub: "Open on this PC", group: "Apps", run: () => send("open-app", { pkg: a.pkg }) }); }
+  for (const a of P.apps) { if (cap("Apps", 5)) break; if (m(a.name)) out.push({ ic: "screen", title: a.name, sub: "Open on this PC", group: "Apps", run: () => send("open-app", { pkg: a.pkg, name: a.name }) }); }
   for (const p of P.photos) { if (cap("Photos", 3)) break; if (m(p.name)) out.push({ ic: "photo", title: p.name, sub: p.video ? "Video" : "Photo", group: "Photos", run: () => { setTab("photos"); view(p.id); } }); }
   for (const c of app.clips) { if (cap("Clipboard", 3)) break; if (m(c.text)) out.push({ ic: "clipboard", title: c.text.slice(0, 80).replace(/\n/g, " "), sub: "Copy again", group: "Clipboard", run: () => send("clip-copy", { id: c.id }) }); }
   return out;
@@ -575,6 +578,21 @@ function locate() {
   clearTimeout(locate.t);
   locate.t = setTimeout(() => { if (P.locating) { P.locating = false; P.locationError = "The phone didn't answer. Check it's awake and connected."; render(); } }, 25000);
   render();
+}
+
+// ---------- One-time setup for phone apps in their own windows (StreamingSetupView) ----------
+function showStreamSetup() {
+  $("#stream-sheet")?.remove();
+  document.body.insertAdjacentHTML("beforeend", `<div class="sheet-bg show" id="stream-sheet"><div class="sheet" style="width:420px">
+    <h4>Phone apps in their own windows</h4>
+    <p>One time only, with the phone on the same Wi-Fi:<br>1. On the phone: Settings → Developer options → Wireless debugging → <b>Pair device with pairing code</b>.<br>
+    2. Type the IP address &amp; port and the 6-digit code it shows here.<br>Afterwards PhoneBridge switches Developer options on only while you use a phone app here.</p>
+    <input class="field" id="sp-host" placeholder="IP address & port, e.g. 192.168.1.20:37099">
+    <input class="field" id="sp-code" placeholder="Pairing code" inputmode="numeric">
+    <p id="sp-msg" style="white-space:pre-wrap"></p>
+    <div class="row-btns"><button class="pill" data-cmd="stream-close">Close</button><button class="pill prominent" data-cmd="stream-pair">Pair</button></div>
+  </div></div>`);
+  setTimeout(() => $("#sp-host").focus(), 30);
 }
 
 // ---------- Sheet ----------
@@ -694,7 +712,7 @@ document.addEventListener("click", (e) => {
   }
   if (ds.key) { $("#dial").value += ds.key; return renderCalls(); }
   if (ds.dial) return dial(ds.dial);
-  if (ds.app) return send("open-app", { pkg: ds.app });
+  if (ds.app) return send("open-app", { pkg: ds.app, name: P.apps.find((a) => a.pkg === ds.app)?.name || ds.app });
   if (ds.quick) { const b = $("#composer-text"); b.value = ds.quick; autosize(b); b.focus(); return; }
   if (ds.to) { P.compose.to = ds.to; $(".suggest")?.remove(); $("#compose-to").value = ds.to; $("#composer-text").focus(); return; }
   if (ds.clipCopy) { send("clip-copy", { id: ds.clipCopy }); return toast("Copied — also on your phone's clipboard"); }
@@ -723,7 +741,10 @@ document.addEventListener("click", (e) => {
     case "panel": P.panel = !P.panel; return render();
     case "palette": return openPalette(!P.palette.open);
     case "dnd": return tx({ t: "phone_dnd", on: !app.dnd });
-    case "ring": case "send-files": case "mirror": case "reconnect": case "open-log": case "quit": case "stream-setup": return send(ds.cmd);
+    case "ring": case "send-files": case "mirror": case "reconnect": case "open-log": case "quit": case "stream-setup":
+    case "update-install": case "update-check": return send(ds.cmd);
+    case "stream-pair": return send("stream-pair", { hostPort: $("#sp-host").value, code: $("#sp-code").value });
+    case "stream-close": $("#stream-sheet").remove(); return;
     case "new-message": P.compose = { to: "" }; P.selectedThread = null; return render();
     case "dial-thread": { const th = currentThread(); if (th) dial(th.address); return; }
     case "send-sms": return sendDraft();
@@ -845,6 +866,7 @@ onHost((m) => {
       break;
     case "open":
       setTab(m.tab || P.tab);
+      if (m.tab === "messages" && m.number === "") { P.compose = { to: "" }; P.selectedThread = null; render(); }
       if (m.tab === "messages" && m.number) {
         const th = P.threads.find((t) => sameNumber(t.address, m.number));
         if (th) selectThread(th.thread); else { P.compose = { to: m.number }; render(); }
@@ -852,6 +874,8 @@ onHost((m) => {
       if (m.tab === "photos" && m.slideshow) setTimeout(startSlideshow, 500);
       break;
     case "toast": toast(m.text); break;
+    case "stream-setup": showStreamSetup(); break;
+    case "stream-message": { const el = $("#sp-msg"); if (el) el.textContent = m.text; else toast(m.text); break; }
   }
 });
 

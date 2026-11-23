@@ -17,7 +17,7 @@
     <ApplicationIcon>Assets\PhoneBridge.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <!-- Keep in step with the Mac and Android apps (release.sh requires matching versions). -->
-    <Version>0.23.0</Version>
+    <Version>0.23</Version>
     <Product>PhoneBridge</Product>
     <Company>PhoneBridge</Company>
     <Description>PhoneBridge for Windows</Description>
@@ -34,6 +34,7 @@
   <ItemGroup>
     <!-- UseWPF drops System.IO from the implicit usings (WPF has its own Path); bring it back. -->
     <Using Include="System.IO" />
+    <Using Include="System.Net.Http" />
     <Using Remove="System.Windows" />
   </ItemGroup>
 
@@ -45,6 +46,8 @@
     <EmbeddedResource Include="Assets\PhoneBridge.ico" LogicalName="PhoneBridge.ico" />
     <EmbeddedResource Include="Assets\PhoneBridge.png" LogicalName="PhoneBridge.png" />
     <EmbeddedResource Include="ui\*.html;ui\*.css;ui\*.js" LogicalName="%(Filename)%(Extension)" />
+    <!-- The Mac app's theme pictures (the small ones used for glyphs, corners and banners), served to the pages. -->
+    <EmbeddedResource Include="..\..\..\mac\Assets\themeart_bat.png;..\..\..\mac\Assets\themeart_batoval.png;..\..\..\mac\Assets\themeart_mask.png;..\..\..\mac\Assets\themeart_spider.png;..\..\..\mac\Assets\themeart_helmet.png;..\..\..\mac\Assets\themeart_reactor.png;..\..\..\mac\Assets\themeart_thor.png;..\..\..\mac\Assets\themeart_hammer.png;..\..\..\mac\Assets\themeart_web.png" LogicalName="art/%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

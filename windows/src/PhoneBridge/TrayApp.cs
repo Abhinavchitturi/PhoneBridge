@@ -12,7 +12,7 @@ namespace PhoneBridge;
 /// Mirrors the Mac app's handling in mac/Sources/App.swift for the features Windows has so far.
 /// All UI work happens on the UI thread; link events are posted to it.
 /// </summary>
-internal sealed class TrayApp : ApplicationContext
+internal sealed partial class TrayApp : ApplicationContext
 {
     private const string Repo = "https://github.com/Abhinavchitturi/PhoneBridge";
 
@@ -40,6 +40,7 @@ internal sealed class TrayApp : ApplicationContext
     private readonly ToolStripMenuItem _showNotifs = new("Show phone notifications") { CheckOnClick = true };
     private readonly ToolStripMenuItem _forget = new("Forget phone…");
     private readonly ToolStripMenuItem _autoStart = new("Start with Windows") { CheckOnClick = true };
+    private readonly ToolStripMenuItem _updateItem = new("Check for Updates…");
 
     private string _status = "Looking for your phone…";
     private string? _note;
@@ -94,13 +95,23 @@ internal sealed class TrayApp : ApplicationContext
             SendImage = png => _ = _link?.SendAsync("clip_image", ("png", Convert.ToBase64String(png))),
         };
 
-        _transfers = new Transfers(Shell.Downloads());
+        _transfers = new Transfers(Shell.Downloads())
+        {
+            // Photos opened in the viewer go to a cache; "Download" copies them to Downloads.
+            FolderFor = kind => kind != null && kind.StartsWith("photo:") ? PhotoCache : Shell.Downloads(),
+        };
         _transfers.Received += (path, kind) => _ui.Post(_ => Received(path, kind), null);
+        _transfers.Progress += (kind, got, total) => _ui.Post(_ => PhotoProgress(kind, got, total), null);
 
         _link = new PhoneLink(store, Environment.MachineName);
         _link.StateChanged += (s, name) => _ui.Post(_ => Update(s, name), null);
         _link.MessageReceived += m =>
         {
+            if (PhoneLink.Str(m, "t") == "v")
+            {
+                CastFrame(m);
+                return;
+            }
             // File chunks are written right here, in order, off the UI thread.
             if (PhoneLink.Str(m, "t") is "file_start" or "file_chunk" or "file_end")
             {
@@ -133,6 +144,7 @@ internal sealed class TrayApp : ApplicationContext
             },
         };
         _control.Start();
+        InitPhone();
 
         if (_window != null)
         {
@@ -196,6 +208,7 @@ internal sealed class TrayApp : ApplicationContext
         _showNotifs.Checked = _store.GetBool("showNotifications", true);
         _showNotifs.CheckedChanged += (_, _) => _store.SetBool("showNotifications", _showNotifs.Checked);
         _forget.Click += (_, _) => Forget();
+        _updateItem.Click += (_, _) => { if (_update != null) _updater?.Install(); else _updater?.Check(manual: true); };
         try { _autoStart.Checked = AutoStart.Enabled; } catch (Exception e) { Log.Write("autostart read: " + e.Message); }
         _autoStart.CheckedChanged += (_, _) =>
         {
@@ -212,10 +225,13 @@ internal sealed class TrayApp : ApplicationContext
                 _statusItem, _noteItem, _batteryItem,
                 new ToolStripSeparator(),
                 open,
+                new ToolStripMenuItem("Messages, Photos & Calls…", null, (_, _) => OpenPhone("messages")),
+                new ToolStripMenuItem("Show phone screen", null, (_, _) => Mirror(null)),
                 new ToolStripSeparator(),
                 _ring, _sendFiles,
                 new ToolStripMenuItem("Open received files", null, (_, _) => Shell.Reveal(_transfers.Folder)),
                 new ToolStripSeparator(),
+                _updateItem,
                 new ToolStripMenuItem("Quit PhoneBridge", null, (_, _) => Quit()),
             ]);
         }
@@ -251,6 +267,7 @@ internal sealed class TrayApp : ApplicationContext
         _ring.Enabled = _connected;
         _ring.Text = _ringing ? "Stop ringing" : "Ring phone";
         _forget.Enabled = _link?.IsPaired ?? _store.TrustedPhone != null;
+        _updateItem.Text = _update != null ? $"Update to PhoneBridge {_update.Version}…" : "Check for Updates…";
         _tray.Icon = _connected ? _icon : _iconOff;
         PushState();
         var tip = "PhoneBridge — " + _status + (_connected && _battery != null ? $" · {_battery}%" : "");
@@ -288,6 +305,8 @@ internal sealed class TrayApp : ApplicationContext
                 _ = _link.SendAsync("update_hint"); // connected: the phone looks for a new version, as with the Mac
                 _control.SendState(force: true);
                 _media.Resend();
+                _ = _link.SendAsync(_sharedNote.Hello());
+                _updater?.Check(manual: false); // connected: both sides look for a new version
                 break;
         }
         Refresh();
@@ -410,6 +429,7 @@ internal sealed class TrayApp : ApplicationContext
 
     private void PushState()
     {
+        PushPhoneState();
         if (_window == null) return;
         _window.PushState(new JsonObject
         {
@@ -429,6 +449,8 @@ internal sealed class TrayApp : ApplicationContext
                 ["autostart"] = _autoStart.Checked,
             },
             ["version"] = Version,
+            ["theme"] = _theme,
+            ["update"] = _update?.Version,
         });
     }
 
@@ -466,6 +488,9 @@ internal sealed class TrayApp : ApplicationContext
                 }
                 Refresh();
                 break;
+            default:
+                OnPhoneCommand(cmd, m);
+                break;
         }
     }
 
@@ -501,13 +526,19 @@ internal sealed class TrayApp : ApplicationContext
 
     private void Handle(JsonObject m)
     {
+        if (OnPhoneMessage(m)) return;
         switch (PhoneLink.Str(m, "t"))
         {
             case "notif":
-                if (_showNotifs.Checked) ShowNotification(m);
+                NotificationArrived(m);
                 break;
             case "notif_removed":
-                if (PhoneLink.Str(m, "id") is { } rid) _toasts.Remove("notif", Toasts.TagFor(rid));
+                if (PhoneLink.Str(m, "id") is { } rid)
+                {
+                    _toasts.Remove("notif", Toasts.TagFor(rid));
+                    _history.MarkRemoved(rid);
+                    _chat?.Remove(rid);
+                }
                 break;
             case "call":
                 if (_callCard != null) _callCard.Update(m); else Call(m);
@@ -520,6 +551,7 @@ internal sealed class TrayApp : ApplicationContext
                 if (PhoneLink.Str(m, "code") is { } code)
                 {
                     _clip.SetFromPhone(code, secret: true);
+                    _clipHistory.Add(code, true, DateTimeOffset.Now);
                     _toasts.Info($"Code {code} copied", $"From {PhoneLink.Str(m, "from") ?? "SMS"} — just paste it");
                 }
                 break;
@@ -550,6 +582,7 @@ internal sealed class TrayApp : ApplicationContext
             case "battery":
                 _battery = m["level"] is JsonValue lv && lv.TryGetValue<int>(out var level) ? level : null;
                 _charging = m["charging"] is JsonValue cv && cv.TryGetValue<bool>(out var c) && c;
+                if (_battery is { } bl) _batteryWatch.Update(bl, _charging, DateTimeOffset.Now);
                 Refresh();
                 break;
             case "info":
@@ -672,6 +705,9 @@ internal sealed class TrayApp : ApplicationContext
             case "decline":
                 _ = args.GetValueOrDefault("w") == "1" ? _link.SendAsync("call_end", ("waiting", true)) : _link.SendAsync("call_end");
                 break;
+            case "update":
+                _updater?.Install();
+                break;
             case "callback" when args.GetValueOrDefault("n") is { } cb:
                 Dial(null, cb);
                 break;
@@ -701,7 +737,10 @@ internal sealed class TrayApp : ApplicationContext
     /// <summary>Opens the phone window on a tab (messages / photos / calls / device), optionally with a number to text.</summary>
     private void OpenPhone(string tab, string? number = null)
     {
-        _window?.ShowAndActivate();
+        var w = EnsurePhoneWindow();
+        if (w == null) { _window?.ShowAndActivate(); return; }
+        w.ShowAndActivate();
+        w.Push("open", new JsonObject { ["tab"] = tab, ["number"] = number });
     }
 
     // MARK: Files
@@ -713,31 +752,36 @@ internal sealed class TrayApp : ApplicationContext
         _ = SendFiles(d.FileNames);
     }
 
-    private async Task SendFiles(string[] paths)
+    private async Task SendFiles(string[] paths, string? kind = null, bool quiet = false)
     {
         if (!_link.IsConnected)
         {
-            _toasts.Info("Phone not connected", "Open PhoneBridge on your phone first.");
+            if (!quiet) _toasts.Info("Phone not connected", "Open PhoneBridge on your phone first.");
             return;
         }
         var sent = 0;
         foreach (var p in paths)
         {
             bool ok;
-            try { ok = await Transfers.SendAsync(p, _link.SendAsync); }
+            try { ok = await Transfers.SendAsync(p, _link.SendAsync, kind); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Log.Write("send failed: " + e.Message); ok = false; }
             if (ok) sent++;
             else
             {
-                _toasts.Info("Couldn't send", Path.GetFileName(p));
+                if (!quiet) _toasts.Info("Couldn't send", Path.GetFileName(p));
                 break;
             }
         }
-        if (sent > 0) _toasts.Info("Sent to phone", sent == 1 ? Path.GetFileName(paths[0]) : $"{sent} files");
+        if (sent > 0 && !quiet) _toasts.Info("Sent to phone", sent == 1 ? Path.GetFileName(paths[0]) : $"{sent} files");
     }
 
     private void Received(string path, string? kind)
     {
+        if (kind != null && kind.StartsWith("photo:"))
+        {
+            PhotoReceived(kind, path);
+            return;
+        }
         if (kind == "screenshot" || kind == "scan")
         {
             try
@@ -758,6 +802,8 @@ internal sealed class TrayApp : ApplicationContext
     {
         _link.Dispose();
         _control.Stop();
+        _streamer?.StopAll();
+        _mic?.Stop();
         _input.ReleaseModifiers();
         _tray.Visible = false;
         _window?.Dispose();

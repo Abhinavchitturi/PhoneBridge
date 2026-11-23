@@ -136,7 +136,7 @@ public sealed class Transfers
     }
 
     /// <summary>"name (2).ext" when name.ext is taken — like Windows does for downloads.</summary>
-    internal static string UniquePath(string dir, string name)
+    public static string UniquePath(string dir, string name)
     {
         var path = Path.Combine(dir, name);
         var stem = Path.GetFileNameWithoutExtension(name);

@@ -108,16 +108,17 @@
       <canvas id="hero"></canvas>
       <div class="label"><div class="name" id="hero-name">Phone</div><div class="line" id="hero-line">Connected</div></div>
     </div>
+    <div class="update card" id="update" style="display:none"></div>
     <div class="grid">
-      <button class="tile filled" data-cmd="send-files"><div class="disc"><svg class="ico"><use href="#i-share"/></svg></div><span>Send file</span></button>
+      <button class="tile filled" data-cmd="phone"><div class="disc"><svg class="ico"><use href="#i-phone"/></svg></div><span>Phone</span></button>
+      <button class="tile" data-cmd="type-open"><div class="disc"><svg class="ico"><use href="#i-keyboard"/></svg></div><span>Type</span></button>
       <button class="tile" id="ring" data-cmd="ring"><div class="disc"><svg class="ico"><use href="#i-bell-waves"/></svg></div><span>Ring phone</span></button>
-      <button class="tile" data-cmd="send-clipboard"><div class="disc"><svg class="ico"><use href="#i-clipboard"/></svg></div><span>Send clipboard</span></button>
-      <button class="tile" data-cmd="open-downloads"><div class="disc"><svg class="ico"><use href="#i-tray"/></svg></div><span>Received</span></button>
-      <button class="tile" id="notif-tile" data-cmd="toggle-notifications"><div class="disc"><svg class="ico"><use href="#i-bell"/></svg></div><span>Notifications</span></button>
-      <button class="tile" data-cmd="reconnect"><div class="disc"><svg class="ico"><use href="#i-refresh"/></svg></div><span>Reconnect</span></button>
+      <button class="tile" data-cmd="send-files"><div class="disc"><svg class="ico"><use href="#i-share"/></svg></div><span>Send file</span></button>
+      <button class="tile" data-cmd="send-tab"><div class="disc"><svg class="ico"><use href="#i-compass"/></svg></div><span>Browser tab</span></button>
+      <button class="tile" data-cmd="sms"><div class="disc"><svg class="ico"><use href="#i-message"/></svg></div><span>SMS</span></button>
     </div>
     <button class="pill wide" data-cmd="settings"><svg class="ico"><use href="#i-sliders"/></svg>All settings</button>
-    <p class="caption">Closing this window keeps PhoneBridge running in the notification area. Drop files on this window to send them to your phone.</p>
+    <p class="caption">Closing this window keeps PhoneBridge running in the notification area. Drop files on this window, or right-click files → Send to → PhoneBridge, to send them to your phone.</p>
   </div></div>
   <div class="drop"><svg class="ico"><use href="#i-share"/></svg>Drop files to send to phone</div>
 </section>
@@ -160,6 +161,8 @@
       <div class="kv"><span>PhoneBridge for Windows</span><span id="s-version">—</span></div>
       <p class="caption">Free and open source. Everything stays between your phone and this PC: no account, no cloud.</p>
       <div class="row-btns">
+        <button class="pill" data-cmd="phone-settings">All settings…</button>
+        <button class="pill" data-cmd="update-check">Check for updates</button>
         <button class="pill" data-cmd="about">Project page</button>
         <button class="pill" data-cmd="open-log">Open log</button>
         <button class="pill" data-cmd="quit"><svg class="ico"><use href="#i-power"/></svg>Quit PhoneBridge</button>
@@ -176,6 +179,15 @@
       <button class="pill" data-cmd="forget-cancel">Cancel</button>
       <button class="pill destructive" data-cmd="forget">Forget</button>
     </div>
+  </div>
+</div>
+
+<div class="sheet-bg" id="type-sheet">
+  <div class="sheet" role="dialog" aria-modal="true" style="width:400px">
+    <h4>Type on phone</h4>
+    <p>Tap a text box on your phone, then type here — it appears in that box.</p>
+    <textarea class="field" id="type-text" rows="5" style="resize:none;font:14px/1.4 var(--font)"></textarea>
+    <div class="row-btns"><button class="pill" data-cmd="type-clear">Clear</button><button class="pill" data-cmd="type-enter">Press Enter on phone</button><button class="pill prominent" data-cmd="type-close">Done</button></div>
   </div>
 </div>
 
@@ -217,10 +229,10 @@ function render() {
   const ring = $("#ring");
   ring.classList.toggle("filled", state.ringing);
   ring.querySelector("span").textContent = state.ringing ? "Stop ring" : "Ring phone";
-  const nt = $("#notif-tile");
-  nt.classList.toggle("filled", false);
-  nt.querySelector("use").setAttribute("href", state.settings.notifications ? "#i-bell" : "#i-bell-off");
-  nt.querySelector("span").textContent = state.settings.notifications ? "Notifications" : "Muted";
+
+  const up = $("#update");
+  up.style.display = state.update && connected ? "" : "none";
+  up.innerHTML = state.update ? `<div style="display:flex;align-items:center;gap:12px;padding:12px 14px"><span style="flex:1;font-size:12.5px">PhoneBridge ${esc(state.update)} is available</span><button class="pill prominent" data-cmd="update-install">Update now</button></div>` : "";
 
   // Settings
   $("#s-name").textContent = state.phoneName || "—";
@@ -256,12 +268,18 @@ document.addEventListener("click", (e) => {
       state.settings.notifications = !state.settings.notifications; render();
       send("set", { key: "notifications", value: state.settings.notifications }); return;
     case "ring": state.ringing = !state.ringing; render(); break; // the phone's ring_state confirms it
+    case "type-open": $("#type-sheet").classList.add("show"); setTimeout(() => $("#type-text").focus(), 30); return;
+    case "type-close": $("#type-sheet").classList.remove("show"); return;
+    case "type-clear": $("#type-text").value = ""; send("type-text", { text: "" }); return;
+    case "type-enter": send("type-enter"); return;
   }
   send(cmd);
 });
+document.addEventListener("input", (e) => { if (e.target.id === "type-text") send("type-text", { text: e.target.value }); });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    if ($("#forget-sheet").classList.contains("show")) $("#forget-sheet").classList.remove("show");
+    if ($("#type-sheet").classList.contains("show")) $("#type-sheet").classList.remove("show");
+    else if ($("#forget-sheet").classList.contains("show")) $("#forget-sheet").classList.remove("show");
     else if (state.pairing) send("pair-cancel");
     else if (showSettings) { showSettings = false; render(); }
     else send("hide");

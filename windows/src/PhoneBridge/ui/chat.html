@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reply</title>
+<!--
+  The chat reply pop-up (mac/Sources/ChatPopup.swift PopupView): a chat message in the corner with suggested replies
+  and a box to answer straight away. Hosted by FloatingPanel (ChatPopup.cs). The page reports its height so the
+  panel fits it. Preview: python3 tools/inline-ui.py chat.html (or chat.html sent).
+-->
+<link rel="stylesheet" href="common.css">
+<style>
+  body { overflow: hidden; background: var(--bg); }
+  .surface { padding: 14px; display: flex; flex-direction: column; gap: 10px; border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); min-height: 100vh; background: rgba(11, 11, 13, .95); }
+  .top { display: flex; gap: 10px; align-items: flex-start; }
+  .top img { width: 36px; height: 36px; border-radius: 9px; flex: none; }
+  .who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .who small { font-size: 10px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: var(--secondary); }
+  .who b { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .who p { font-size: 13px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; user-select: text; }
+  .x { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; color: var(--secondary); background: rgba(255, 255, 255, .08); flex: none; }
+  .sugg { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+  .sugg button { font-size: 12px; font-weight: 500; padding: 6px 11px; border-radius: 999px; white-space: nowrap; background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  .box { display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 14px; border-radius: 18px; background: rgba(255, 255, 255, .07); border: 1px solid var(--stroke); }
+  .box input { flex: 1; min-width: 0; background: none; border: 0; outline: none; color: var(--text); font: 13.5px var(--font); user-select: text; }
+  .box .send { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); font-size: 13px; }
+  .box .send:disabled { background: rgba(255, 255, 255, .2); }
+  .sent { display: none; align-items: center; gap: 6px; padding: 6px 0; color: var(--green); font-size: 13px; font-weight: 600; }
+  body.is-sent .sent { display: flex; }
+  body.is-sent .sugg, body.is-sent .box { display: none; }
+</style>
+</head>
+<body>
+<div class="surface" id="surface">
+  <div class="top">
+    <span id="icon"></span>
+    <div class="who"><small id="app">App</small><b id="title">Someone</b><p id="text"></p></div>
+    <button class="x" data-cmd="close" title="Close"><svg class="ico"><use href="#i-close"/></svg></button>
+  </div>
+  <div class="sugg" id="sugg"></div>
+  <div class="box"><input id="draft" placeholder="Reply…" autocomplete="off"><button class="send" id="send" title="Send"><svg class="ico"><use href="#i-send"/></svg></button></div>
+  <div class="sent"><svg class="ico"><use href="#i-check"/></svg>Sent</div>
+</div>
+<script src="common.js"></script>
+<script src="themes.js"></script>
+<script>
+"use strict";
+let chat = { id: null, app: "", title: "", text: "", icon: null, suggestions: [], sent: false };
+
+function render() {
+  $("#icon").innerHTML = chat.icon ? `<img src="data:image/png;base64,${chat.icon}" alt="">` : avatar(chat.app, 36);
+  $("#app").textContent = chat.app;
+  $("#title").textContent = chat.title;
+  $("#text").textContent = chat.text;
+  $("#sugg").innerHTML = chat.suggestions.map((s) => `<button data-s="${esc(s)}">${esc(s)}</button>`).join("");
+  $("#sugg").style.display = chat.suggestions.length ? "" : "none";
+  document.body.classList.toggle("is-sent", chat.sent);
+  $("#send").disabled = !$("#draft").value.trim();
+  requestAnimationFrame(() => send("size", { height: Math.ceil($("#surface").getBoundingClientRect().height) }));
+}
+function reply(text) {
+  text = text.trim();
+  if (!text) return;
+  send("reply", { id: chat.id, text });
+  $("#draft").value = "";
+  chat.sent = true;
+  render();
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.s) return reply(b.dataset.s);
+  if (b.id === "send") return reply($("#draft").value);
+  if (b.dataset.cmd === "close") send("close");
+});
+$("#draft").addEventListener("input", () => { $("#send").disabled = !$("#draft").value.trim(); send("typing", { draft: $("#draft").value }); });
+$("#draft").addEventListener("keydown", (e) => { if (e.key === "Enter") reply($("#draft").value); if (e.key === "Escape") send("close"); });
+document.addEventListener("mouseenter", () => send("hover", { on: true }));
+document.addEventListener("mouseleave", () => send("hover", { on: false }));
+onHost((m) => {
+  if (m.type !== "state") return;
+  const sameChat = m.state.id && m.state.id === chat.id;
+  chat = Object.assign(chat, m.state);
+  if (chat.theme) applyTheme(chat.theme);
+  if (!sameChat && !m.state.keepDraft) $("#draft").value = "";
+  render();
+});
+render();
+send("ready");
+if (!host && window.__demo) {
+  chat = Object.assign(chat, { id: "x", app: "WhatsApp", title: "Maya Patel", text: "Are we still on for dinner tonight? I can book the place by the river 🍝",
+    suggestions: ["Yes, see you at 8!", "Can we do 8:30?", "Sounds great 👍"], sent: window.__demo === "sent" });
+  render();
+}
+</script>
+</body>
+</html>

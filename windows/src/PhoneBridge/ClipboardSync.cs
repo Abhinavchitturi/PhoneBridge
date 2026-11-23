@@ -24,6 +24,8 @@ internal sealed class ClipboardSync : NativeWindow, IDisposable
 
     public Action<string> SendText = _ => { };
     public Action<byte[]> SendImage = _ => { };
+    /// <summary>(text, came from the phone) — feeds the clipboard history.</summary>
+    public Action<string, bool> OnText = (_, _) => { };
     public bool Enabled = true;
 
     // Last text / image seen in either direction, so what the phone sent us isn't echoed straight back.
@@ -57,6 +59,7 @@ internal sealed class ClipboardSync : NativeWindow, IDisposable
                 var s = Clipboard.GetText();
                 if (s.Length == 0 || s.Length > 1_000_000 || s == _lastText) return;
                 _lastText = s;
+                OnText(s, false);
                 SendText(s);
             }
             else if (Clipboard.ContainsImage())
@@ -98,6 +101,7 @@ internal sealed class ClipboardSync : NativeWindow, IDisposable
     public void SetFromPhone(string text, bool secret = false)
     {
         _lastText = text;
+        if (!secret) OnText(text, true);
         Write(() =>
         {
             var d = new DataObject();

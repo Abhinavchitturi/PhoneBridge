@@ -1,13 +1,37 @@
+using System.Diagnostics;
+using System.IO.Pipes;
+using System.Text;
+
 namespace PhoneBridge;
 
+/// <summary>
+/// PhoneBridge.exe                 starts the app (or brings the running one's window up)
+/// PhoneBridge.exe file1 file2…    sends files to the phone (this is what Explorer's Send to → PhoneBridge does)
+/// PhoneBridge.exe --text "hello"  puts text on the phone's clipboard
+/// A second copy hands its request to the running one over a named pipe and exits.
+/// </summary>
 internal static class Program
 {
+    private static readonly string PipeName = "PhoneBridge.Windows." + Environment.UserName;
+
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
+        // Started by the updater: let the old copy finish quitting first (it holds the single-instance lock).
+        var i = Array.IndexOf(args, "--after-update");
+        if (i >= 0 && i + 1 < args.Length && int.TryParse(args[i + 1], out var oldPid))
+        {
+            try { Process.GetProcessById(oldPid).WaitForExit(15_000); } catch (ArgumentException) { }
+            args = args.Where((_, k) => k != i && k != i + 1).ToArray();
+        }
+
         // One copy per Windows user: a second one would dial the phone too and the two would keep replacing each other.
         using var single = new Mutex(true, @"Local\PhoneBridge.Windows", out var first);
-        if (!first) return;
+        if (!first)
+        {
+            Forward(args);
+            return;
+        }
 
         ApplicationConfiguration.Initialize();
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
@@ -16,7 +40,44 @@ internal static class Program
         TaskScheduler.UnobservedTaskException += (_, e) => { Log.Write("task: " + e.Exception); e.SetObserved(); };
 
         var app = TrayApp.Create();
-        if (app != null) Application.Run(app);
+        if (app == null) return;
+        var ui = SynchronizationContext.Current!;
+        _ = Task.Run(() => Listen(a => ui.Post(_ => app.FromCommandLine(a), null)));
+        if (args.Any(a => a != "--send")) ui.Post(_ => app.FromCommandLine(args), null);
+        Application.Run(app);
+    }
+
+    private static void Forward(string[] args)
+    {
+        try
+        {
+            using var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.Out);
+            pipe.Connect(3000);
+            var data = Encoding.UTF8.GetBytes(string.Join("\0", args.Select(a => File.Exists(a) ? Path.GetFullPath(a) : a)));
+            pipe.Write(data);
+        }
+        catch (Exception e) when (e is TimeoutException or IOException) { Log.Write("couldn't reach the running PhoneBridge: " + e.Message); }
+    }
+
+    private static async Task Listen(Action<string[]> handle)
+    {
+        while (true)
+        {
+            try
+            {
+                using var pipe = new NamedPipeServerStream(PipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                await pipe.WaitForConnectionAsync();
+                using var ms = new MemoryStream();
+                await pipe.CopyToAsync(ms);
+                var text = Encoding.UTF8.GetString(ms.ToArray());
+                handle(text.Length == 0 ? [] : text.Split('\0'));
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                Log.Write("pipe: " + e.Message);
+                await Task.Delay(1000);
+            }
+        }
     }
 }
 

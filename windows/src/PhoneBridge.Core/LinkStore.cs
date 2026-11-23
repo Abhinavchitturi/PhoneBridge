@@ -83,6 +83,22 @@ public sealed class LinkStore
         set => SetNode("remoteHosts", new JsonArray(value.Select(v => (JsonNode)JsonValue.Create(v)!).ToArray()));
     }
 
+    /// <summary>Any stored setting (a copy), or null.</summary>
+    public JsonNode? Get(string key)
+    {
+        lock (_lock) return Settings()[key]?.DeepClone();
+    }
+
+    public void Set(string key, JsonNode? value) => SetNode(key, value?.DeepClone());
+
+    public string? GetString(string key, string? fallback) { var s = GetString(key); return s ?? fallback; }
+
+    public List<string> GetList(string key, IEnumerable<string> fallback) =>
+        Get(key) is JsonArray a ? a.Select(n => n?.GetValue<string>() ?? "").Where(s => s.Length > 0).ToList() : [.. fallback];
+
+    public void SetList(string key, IEnumerable<string> values) =>
+        SetNode(key, new JsonArray(values.Select(v => (JsonNode)JsonValue.Create(v)!).ToArray()));
+
     public bool GetBool(string key, bool fallback)
     {
         lock (_lock) return Settings()[key] is JsonValue v && v.TryGetValue<bool>(out var b) ? b : fallback;

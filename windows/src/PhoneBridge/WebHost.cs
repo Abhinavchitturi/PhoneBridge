@@ -27,6 +27,7 @@ internal sealed class WebHost
         _page = page;
         _onCommand = onCommand;
         View = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = transparent ? Color.Transparent : Background };
+        MapFolder("art.phonebridge", ArtDir.Value);
         _ = InitAsync();
     }
 
@@ -84,6 +85,23 @@ internal sealed class WebHost
     }
 
     private readonly List<(string Host, string Folder)> _maps = [];
+
+    /// <summary>The theme pictures, unpacked once from the app into %LOCALAPPDATA%\PhoneBridge\art.</summary>
+    private static readonly Lazy<string> ArtDir = new(() =>
+    {
+        var dir = Path.Combine(Log.Dir, "art");
+        Directory.CreateDirectory(dir);
+        var asm = typeof(WebHost).Assembly;
+        foreach (var name in asm.GetManifestResourceNames().Where(n => n.StartsWith("art/")))
+        {
+            var path = Path.Combine(dir, name[4..]);
+            if (File.Exists(path)) continue;
+            using var s = asm.GetManifestResourceStream(name)!;
+            using var f = File.Create(path);
+            s.CopyTo(f);
+        }
+        return dir;
+    });
 
     /// <summary>Serves a local folder to the page at https://{host}/ (read-only) — used for full-size photos and videos.</summary>
     public void MapFolder(string host, string folder)
