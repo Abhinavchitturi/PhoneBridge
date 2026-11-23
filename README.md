@@ -26,6 +26,8 @@
 
 You need **both**: the Mac app and the phone app. Install them, then pair them once ([steps below](#-get-started-in-3-steps)). Older versions and each file's SHA-256 are on the [Releases page](https://github.com/Abhinavchitturi/PhoneBridge/releases).
 
+> 🪟 **Windows (preview):** a Windows tray app is in [`windows/`](windows). It isn't in the releases yet, so for now you [build it yourself](#windows-app-preview). It covers the basics: pairing, notifications, clipboard, battery, files and incoming calls.
+
 ---
 
 ## 🚀 Get started in 3 steps
@@ -235,6 +237,16 @@ JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradle
 adb install -r app/build/outputs/apk/release/app-release.apk   # or send the file to the phone and open it
 ```
 
+<a id="windows-app-preview"></a>
+**Windows app (preview)**
+
+Needs the [.NET 10 SDK](https://dotnet.microsoft.com/download). It builds on Windows, macOS or Linux:
+```bash
+cd windows
+./build.sh   # runs the tests, then makes out/win-x64/PhoneBridge.exe (self-contained, one file)
+```
+Copy `PhoneBridge.exe` to a Windows 10 (1903+) or Windows 11 PC and run it. On the phone, choose Computers → Pair a new computer, then check that the codes match. Pairing it with your phone doesn't unpair your Mac: switch between them from the phone's Computers list. See [`windows/README.md`](windows/README.md) for what works so far and what's still Mac-only.
+
 **Release files**
 ```bash
 ./release.sh   # builds release/PhoneBridge.dmg and release/PhoneBridge.apk
@@ -251,6 +263,7 @@ The plain-named `PhoneBridge.dmg` and `PhoneBridge.apk` copies keep the download
 |---|---|
 | [`mac/`](mac) | The menu-bar app (Swift; builds without Xcode) |
 | [`android/`](android) | The phone app (Kotlin; signed with the same key every release, so updates install over the old version) |
+| [`windows/`](windows) | The Windows tray app, preview (C# / .NET 10 WinForms; same protocol as the Mac app) |
 | [`docs/`](docs) | Icon and documentation assets |
 
 Developed and tested on a MacBook Air (macOS 27) with a Samsung Galaxy phone (One UI 8, Android 16).

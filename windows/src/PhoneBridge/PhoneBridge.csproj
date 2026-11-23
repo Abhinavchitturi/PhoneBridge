@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The Windows tray app. Builds on Windows, and also on macOS/Linux thanks to EnableWindowsTargeting
+       (it only runs on Windows 10 1903 or newer). See windows/README.md for the build and publish commands. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.18362.0</SupportedOSPlatformVersion>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>PhoneBridge</AssemblyName>
+    <RootNamespace>PhoneBridge</RootNamespace>
+    <ApplicationIcon>Assets\PhoneBridge.ico</ApplicationIcon>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <!-- Keep in step with the Mac and Android apps (release.sh requires matching versions). -->
+    <Version>0.23.0</Version>
+    <Product>PhoneBridge</Product>
+    <Company>PhoneBridge</Company>
+    <Description>PhoneBridge for Windows</Description>
+    <!-- Used by `dotnet publish -r win-x64` (see windows/build.ps1 / build.sh): one PhoneBridge.exe, runtime included. -->
+    <SelfContained Condition="'$(RuntimeIdentifier)' != ''">true</SelfContained>
+    <PublishSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>embedded</DebugType>
+    
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../PhoneBridge.Core/PhoneBridge.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\PhoneBridge.ico" LogicalName="PhoneBridge.ico" />
+    <EmbeddedResource Include="Assets\PhoneBridge.png" LogicalName="PhoneBridge.png" />
+  </ItemGroup>
+
+</Project>
