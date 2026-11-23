@@ -17,10 +17,19 @@
   /* Opaque, so nothing ever shows through it. */
   #panel { width: 320px; flex: none; border-left: 1px solid var(--stroke); background: color-mix(in srgb, var(--bg) 94%, #fff); display: flex; flex-direction: column; }
   body.no-panel #panel { display: none; }
-  /* A narrow window (or big display scaling): the panel floats over the content instead of squeezing it, and starts closed. */
-  body.narrow #panel { position: fixed; top: 0; right: 0; bottom: 0; z-index: 8; box-shadow: -18px 0 50px rgba(0, 0, 0, .5); animation: slidein .22s cubic-bezier(.2, .9, .3, 1); }
+  /* Not docked (a narrow window, or turned off): the panel is tucked into the right edge and slides out over the content
+     when the pointer reaches that edge (or the bell is clicked), and tucks itself away again when the pointer leaves. */
+  body.floating #panel { position: fixed; top: 0; right: 0; bottom: 0; z-index: 8; box-shadow: -18px 0 50px rgba(0, 0, 0, .5); animation: slidein .22s cubic-bezier(.2, .9, .3, 1); }
   @keyframes slidein { from { transform: translateX(24px); opacity: 0; } }
   /* The theme picture sits behind the top bar and fades out before it reaches the content. */
+  #edge { position: fixed; top: 0; right: 0; bottom: 0; width: 14px; z-index: 7; display: none; cursor: default; }
+  body.floating.no-panel #edge { display: block; }
+  #edge .grip { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 5px; height: 64px; border-radius: 999px;
+    background: rgba(255, 255, 255, .18); transition: background .15s, height .15s, width .15s; }
+  #edge:hover .grip { background: var(--accent); height: 84px; width: 6px; }
+  #edge .grip.has { background: color-mix(in srgb, var(--accent) 75%, transparent); }
+  #edge .n { position: absolute; right: 2px; top: calc(50% - 50px); font-size: 9.5px; font-weight: 700; color: #fff; padding: 1.5px 5px;
+    border-radius: 999px; background: var(--red); line-height: 1.2; }
   .backdrop-art { position: absolute; top: 0; right: 0; width: 380px; height: 320px; pointer-events: none; opacity: .55;
     -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 18%, transparent 55%); mask-image: linear-gradient(to bottom, #000 0, #000 18%, transparent 55%); }
 
@@ -443,6 +452,7 @@
   <nav class="dock" id="dock"></nav>
 </div>
 
+<div id="edge" title="Notifications"><i class="grip" id="edge-grip"></i><span class="n" id="edge-n" style="display:none"></span></div>
 <aside id="panel">
   <div class="phead"><h2>Notifications</h2><span class="count" id="feed-count" style="display:none"></span><span class="grow"></span>
     <button class="iconbtn sm" data-cmd="feed-clear" title="Clear all"><svg class="ico"><use href="#i-trash"/></svg></button>
