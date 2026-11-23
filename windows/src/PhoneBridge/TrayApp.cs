@@ -16,7 +16,8 @@ internal sealed partial class TrayApp : ApplicationContext
 {
     private const string Repo = "https://github.com/Abhinavchitturi/PhoneBridge";
 
-    private readonly SynchronizationContext _ui;
+    private readonly UiThread _ui;
+    internal UiThread Ui => _ui;
     private readonly LinkStore _store;
     private readonly PhoneLink _link;
     private readonly Transfers _transfers;
@@ -58,7 +59,10 @@ internal sealed partial class TrayApp : ApplicationContext
 
     private TrayApp(LinkStore store)
     {
-        _ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+        _ui = new UiThread();
+        // Also the thread's context, so code that awaits on the UI thread comes back to it.
+        SynchronizationContext.SetSynchronizationContext(_ui);
+        _uiThread = _ui.ThreadId;
         _store = store;
         _phoneName = store.PhoneName ?? "your phone";
         _icon = LoadIcon();
@@ -105,22 +109,7 @@ internal sealed partial class TrayApp : ApplicationContext
 
         _link = new PhoneLink(store, Environment.MachineName);
         _link.StateChanged += (s, name) => _ui.Post(_ => Update(s, name), null);
-        _link.MessageReceived += m =>
-        {
-            if (PhoneLink.Str(m, "t") == "v")
-            {
-                CastFrame(m);
-                return;
-            }
-            // File chunks are written right here, in order, off the UI thread.
-            if (PhoneLink.Str(m, "t") is "file_start" or "file_chunk" or "file_end")
-            {
-                try { _transfers.Handle(m); }
-                catch (Exception e) when (e is IOException or UnauthorizedAccessException or FormatException) { Log.Write("receive failed: " + e.Message); }
-                return;
-            }
-            _ui.Post(_ => Handle(m), null);
-        };
+        _link.MessageReceived += OnLinkMessage;
         _link.StrangerBlocked += name => _ui.Post(_ => _toasts.Info("Blocked a pairing attempt",
             $"“{name}” tried to connect. PhoneBridge only talks to your paired phone — use Forget phone first if you're switching phones."), null);
         _link.Refused += (why, name) => _ui.Post(_ => Refused(why, name), null);
@@ -167,6 +156,24 @@ internal sealed partial class TrayApp : ApplicationContext
         // Not paired yet: open the window so the first-run "Looking for nearby phones" screen is right there.
         if (_window != null && store.TrustedPhone == null) _window.ShowAndActivate();
         Log.Write($"started {Application.ProductVersion}");
+    }
+
+    /// <summary>A message from the phone, on the link's (background) thread.</summary>
+    private void OnLinkMessage(JsonObject m)
+    {
+            if (PhoneLink.Str(m, "t") == "v")
+            {
+                CastFrame(m);
+                return;
+            }
+            // File chunks are written right here, in order, off the UI thread.
+            if (PhoneLink.Str(m, "t") is "file_start" or "file_chunk" or "file_end")
+            {
+                try { _transfers.Handle(m); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException or FormatException) { Log.Write("receive failed: " + e.Message); }
+                return;
+            }
+            _ui.Post(_ => Handle(m), null);
     }
 
     /// <summary>Opens the saved state; if the secrets can't be read (e.g. copied from another PC), offers a fresh start.</summary>
@@ -258,6 +265,7 @@ internal sealed partial class TrayApp : ApplicationContext
 
     private void Refresh()
     {
+        if (OffUi(nameof(Refresh))) { _ui.Post(_ => Refresh(), null); return; }
         _statusItem.Text = _status;
         _noteItem.Text = _note ?? "";
         _noteItem.Visible = _note != null;
@@ -278,6 +286,7 @@ internal sealed partial class TrayApp : ApplicationContext
 
     private void Update(LinkState state, string name)
     {
+        if (OffUi(nameof(Update))) { _ui.Post(_ => Update(state, name), null); return; }
         switch (state)
         {
             case LinkState.Searching:
@@ -429,6 +438,7 @@ internal sealed partial class TrayApp : ApplicationContext
 
     private void PushState()
     {
+        if (OffUi(nameof(PushState))) { _ui.Post(_ => PushState(), null); return; }
         PushPhoneState();
         if (_window == null) return;
         _window.PushState(new JsonObject
@@ -526,6 +536,7 @@ internal sealed partial class TrayApp : ApplicationContext
 
     private void Handle(JsonObject m)
     {
+        if (OffUi(nameof(Handle))) { _ui.Post(_ => Handle(m), null); return; }
         if (OnPhoneMessage(m)) return;
         switch (PhoneLink.Str(m, "t"))
         {

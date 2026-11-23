@@ -45,7 +45,7 @@ internal static class Program
         try { app = TrayApp.Create(); }
         catch (Exception e) { Crash(e); return; }
         if (app == null) return;
-        var ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+        var ui = app.Ui;
         _ = Task.Run(() => Listen(a => ui.Post(_ => app.FromCommandLine(a), null)));
         if (selfTest) SelfTest.Run(app);
         else if (args.Any(a => a != "--send")) ui.Post(_ => app.FromCommandLine(args), null);
@@ -54,9 +54,12 @@ internal static class Program
     }
 
     /// <summary>Something went badly wrong: log it, say so (with where the log is), and quit cleanly.</summary>
+    private static int _crashed;
+
     private static void Crash(object error)
     {
         Log.Write("fatal: " + error);
+        if (Interlocked.Exchange(ref _crashed, 1) == 1) { Thread.Sleep(Timeout.Infinite); return; } // the first one shows the dialog
         SelfTest.Error("fatal", error);
         if (SelfTest.Active) { SelfTest.End(); Environment.Exit(2); }
         try
