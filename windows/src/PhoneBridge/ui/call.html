@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Call</title>
+<!--
+  The floating call card (mac/Sources/CallPanel.swift): incoming → Answer / Decline; on a call → who, the time talked,
+  Mute / Speaker / End, and a call-waiting row with its own Answer / Decline. Hosted by FloatingPanel (CallCard.cs).
+  Preview: open with ?demo=ringing|active|waiting (through tools/inline-ui.py).
+-->
+<link rel="stylesheet" href="common.css">
+<style>
+  body { overflow: hidden; background: var(--bg); }
+  .surface {
+    position: absolute; inset: 0; padding: 0 16px; display: flex; flex-direction: column; justify-content: center; gap: 14px;
+    background: rgba(11, 11, 13, .95); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  .corner { position: absolute; top: 10px; right: 10px; opacity: .55; }
+  .row { display: flex; align-items: center; gap: 12px; }
+  .who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .who b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .who span { font-size: 12px; color: var(--secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .round { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 19px; flex: none; transition: transform .15s; }
+  .round:active { transform: scale(.92); }
+  .round.small { width: 34px; height: 34px; font-size: 15px; }
+  .red { background: var(--red); }
+  .green { background: var(--green); }
+  .timer { display: flex; align-items: center; gap: 6px; font: 600 17px/1 var(--font-rounded); font-variant-numeric: tabular-nums; }
+  .timer .dot { width: 8px; height: 8px; }
+  .ringing { display: flex; align-items: center; gap: 6px; font: 600 15px/1 var(--font-rounded); color: var(--secondary); }
+  .ringing .ico { color: var(--accent); font-size: 14px; }
+  .controls { display: flex; justify-content: center; gap: 10px; }
+  .ctl { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .ctl .cap { width: 44px; height: 40px; border-radius: 999px; display: grid; place-items: center; font-size: 17px; background: rgba(255, 255, 255, .1); transition: background .15s, color .15s, transform .15s; }
+  .ctl:active .cap { transform: scale(.94); }
+  .ctl.on .cap { background: var(--accent); color: var(--on-accent); }
+  .ctl.end .cap { background: var(--red); color: #fff; }
+  .ctl small { font-size: 10.5px; font-weight: 600; color: var(--secondary); }
+  .waiting { display: none; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 14px; background: rgba(255, 255, 255, .08); }
+  .waiting > .ico { color: var(--accent); font-size: 15px; }
+  body.has-waiting .waiting { display: flex; }
+  #ringing-card, #active-card { display: none; }
+  body[data-mode="ringing"] #ringing-card, body[data-mode="active"] #active-card { display: flex; }
+  #active-card { flex-direction: column; gap: 14px; }
+</style>
+</head>
+<body data-mode="ringing">
+<div class="surface">
+  <canvas class="corner" width="28" height="28" style="width:14px;height:14px"></canvas>
+
+  <!-- Incoming / dialling -->
+  <div class="row" id="ringing-card">
+    <div id="r-avatar"></div>
+    <div class="who"><b id="r-title">Unknown caller</b><span id="r-sub">Incoming call</span></div>
+    <button class="round red" data-cmd="decline" id="r-decline" title="Decline"><svg class="ico"><use href="#i-call-end"/></svg></button>
+    <button class="round green" data-cmd="answer" id="r-answer" title="Answer"><svg class="ico"><use href="#i-call"/></svg></button>
+  </div>
+
+  <!-- On a call -->
+  <div id="active-card">
+    <div class="waiting">
+      <svg class="ico"><use href="#i-call-in"/></svg>
+      <div class="who"><b id="w-who" style="font-size:13px">Someone</b><span style="font-size:11px">Call waiting</span></div>
+      <button class="round small red" data-cmd="decline-waiting" title="Decline the waiting call"><svg class="ico"><use href="#i-call-end"/></svg></button>
+      <button class="round small green" data-cmd="answer-waiting" title="Answer the waiting call (the current call is put on hold)"><svg class="ico"><use href="#i-call"/></svg></button>
+    </div>
+    <div class="row">
+      <div id="a-avatar"></div>
+      <div class="who"><b id="a-title">On call</b><span id="a-sub">On call</span></div>
+      <div class="timer" id="a-timer"><i class="dot on"></i><span id="a-clock">00:00</span></div>
+      <div class="ringing" id="a-ringing"><svg class="ico"><use href="#i-call-out"/></svg>Ringing…</div>
+    </div>
+    <div class="controls">
+      <button class="ctl" id="c-mute" data-cmd="control" data-action="mute"><span class="cap"><svg class="ico"><use href="#i-mic-off"/></svg></span><small>Mute</small></button>
+      <button class="ctl" id="c-speaker" data-cmd="control" data-action="speaker"><span class="cap"><svg class="ico"><use href="#i-speaker"/></svg></span><small>Speaker</small></button>
+      <button class="ctl" id="c-hold" data-cmd="control" data-action="hold"><span class="cap"><svg class="ico"><use href="#i-pause"/></svg></span><small>Hold</small></button>
+      <button class="ctl end" data-cmd="hangup" title="End the call"><span class="cap"><svg class="ico"><use href="#i-call-end"/></svg></span><small>End</small></button>
+    </div>
+  </div>
+</div>
+
+<script src="common.js"></script>
+<script src="themes.js"></script>
+<script>
+"use strict";
+let call = { mode: "ringing", name: null, number: null, detail: null, outgoing: false, answered: false, startedAt: null,
+             waiting: null, heldCaller: null, muted: false, speaker: false, held: false };
+
+function clock(sec) {
+  const s = Math.max(0, Math.floor(sec)), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, r = s % 60;
+  const two = (n) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${two(m)}:${two(r)}` : `${two(m)}:${two(r)}`;
+}
+
+function render() {
+  document.body.dataset.mode = call.mode;
+  document.body.classList.toggle("has-waiting", !!call.waiting);
+  if (call.mode === "ringing") {
+    const title = call.name || call.number || "Unknown caller";
+    const what = call.outgoing ? "Calling…" : "Incoming call";
+    $("#r-avatar").innerHTML = avatar(title, 46);
+    $("#r-title").textContent = title;
+    $("#r-sub").textContent = call.number && call.number !== title ? `${what} · ${call.number}` : what;
+    $("#r-answer").style.display = call.outgoing ? "none" : "";
+    $("#r-decline").title = call.outgoing ? "Hang up" : "Decline";
+  } else {
+    const title = call.name || call.number || "On call";
+    let sub = "On call";
+    if (call.held) sub = "On hold";
+    else if (!call.answered) sub = call.detail || "Calling…";
+    else if (call.heldCaller) sub = `${call.heldCaller} on hold`;
+    else if (call.number && call.number !== title) sub = call.number;
+    $("#a-avatar").innerHTML = avatar(title, 44);
+    $("#a-title").textContent = title;
+    $("#a-sub").textContent = sub;
+    $("#a-timer").style.display = call.answered ? "" : "none";
+    $("#a-ringing").style.display = call.answered ? "none" : "";
+    $("#a-timer .dot").style.background = call.held ? "var(--orange)" : "var(--green)";
+    $("#c-mute").classList.toggle("on", call.muted);
+    $("#c-speaker").classList.toggle("on", call.speaker);
+    $("#c-hold").classList.toggle("on", call.held);
+    if (call.waiting) $("#w-who").textContent = call.waiting.name || call.waiting.number || "Someone";
+    tick();
+  }
+}
+
+function tick() {
+  if (call.mode === "active" && call.answered && call.startedAt) $("#a-clock").textContent = clock((Date.now() - call.startedAt) / 1000);
+}
+setInterval(tick, 1000);
+
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-cmd]");
+  if (!b) return;
+  if (b.dataset.cmd === "control") {
+    const a = b.dataset.action; // show the change at once; the phone's report corrects it if it didn't work
+    if (a === "mute") call.muted = !call.muted;
+    if (a === "speaker") call.speaker = !call.speaker;
+    if (a === "hold") call.held = !call.held;
+    render();
+    send("control", { action: a });
+    return;
+  }
+  send(b.dataset.cmd);
+});
+
+function corner() { const c = $("canvas.corner"); const ctx = c.getContext("2d"); ctx.clearRect(0, 0, 28, 28); themeGlyph(ctx, 28); }
+onHost((m) => { if (m.type === "state") { call = Object.assign(call, m.state); if (call.theme) applyTheme(call.theme); corner(); render(); } });
+corner(); setTimeout(corner, 500);
+render();
+send("ready");
+
+const demo = new URLSearchParams(location.search).get("demo") || window.__demo;
+if (!host && demo) {
+  const now = Date.now();
+  const demos = {
+    ringing: { mode: "ringing", name: "Alice Martin", number: "+1 415 555 0134" },
+    active: { mode: "active", name: "Alice Martin", number: "+1 415 555 0134", answered: true, startedAt: now - 83000, muted: true },
+    waiting: { mode: "active", name: "Alice Martin", number: "+1 415 555 0134", answered: true, startedAt: now - 245000, waiting: { name: "Bob Lee" } },
+  };
+  call = Object.assign(call, demos[demo] || demos.ringing);
+  render();
+}
+</script>
+</body>
+</html>

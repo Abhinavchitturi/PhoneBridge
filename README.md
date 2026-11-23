@@ -23,8 +23,11 @@
 |---|---|---|
 | 💻 **Mac** | [**PhoneBridge.dmg**](https://github.com/Abhinavchitturi/PhoneBridge/releases/latest/download/PhoneBridge.dmg) | macOS 15 or later |
 | 📱 **Android phone** | [**PhoneBridge.apk**](https://github.com/Abhinavchitturi/PhoneBridge/releases/latest/download/PhoneBridge.apk) | Android 13 or later |
+| 🪟 **Windows PC** (preview) | [**PhoneBridge-Windows.exe**](https://github.com/Abhinavchitturi/PhoneBridge/releases/latest/download/PhoneBridge-Windows.exe) | Windows 10 (1903+) or Windows 11 |
 
-You need **both**: the Mac app and the phone app. Install them, then pair them once ([steps below](#-get-started-in-3-steps)). Older versions and each file's SHA-256 are on the [Releases page](https://github.com/Abhinavchitturi/PhoneBridge/releases).
+You need **both**: the computer app (Mac or Windows) and the phone app. Install them, then pair them once ([steps below](#-get-started-in-3-steps)). Older versions and each file's SHA-256 are on the [Releases page](https://github.com/Abhinavchitturi/PhoneBridge/releases).
+
+> 🪟 **Windows (preview):** the Windows app has the same design and features as the Mac app (see [`windows/README.md`](windows/README.md)). It's one file: download it, run it, and it keeps itself up to date. Windows may warn that it's from an unknown publisher (it isn't code-signed yet): choose **More info → Run anyway**.
 
 ---
 
@@ -235,15 +238,25 @@ JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradle
 adb install -r app/build/outputs/apk/release/app-release.apk   # or send the file to the phone and open it
 ```
 
+<a id="windows-app-preview"></a>
+**Windows app (preview)**
+
+Needs the [.NET 10 SDK](https://dotnet.microsoft.com/download). It builds on Windows, macOS or Linux:
+```bash
+cd windows
+./build.sh   # runs the tests, then makes out/win-x64/PhoneBridge.exe (self-contained, one file)
+```
+Copy `PhoneBridge.exe` to a Windows 10 (1903+) or Windows 11 PC and run it. On the phone, choose Computers → Pair a new computer, then check that the codes match. Pairing it with your phone doesn't unpair your Mac: switch between them from the phone's Computers list. See [`windows/README.md`](windows/README.md) for what works so far and what's still Mac-only.
+
 **Release files**
 ```bash
-./release.sh   # builds release/PhoneBridge.dmg and release/PhoneBridge.apk
+./release.sh   # builds release/PhoneBridge.dmg, release/PhoneBridge.apk and (with the .NET 10 SDK) release/PhoneBridge-Windows.exe
 ```
 To publish:
 ```bash
-gh release create v<version> release/PhoneBridge.dmg release/PhoneBridge.apk --generate-notes
+gh release create v<version> release/PhoneBridge.dmg release/PhoneBridge.apk release/PhoneBridge-Windows.exe --generate-notes
 ```
-The plain-named `PhoneBridge.dmg` and `PhoneBridge.apk` copies keep the download links at the top of this page pointing to the latest version.
+The plain-named `PhoneBridge.dmg`, `PhoneBridge.apk` and `PhoneBridge-Windows.exe` copies keep the download links at the top of this page pointing to the latest version, and all three apps update themselves from them.
 
 ### Project layout
 
@@ -251,6 +264,7 @@ The plain-named `PhoneBridge.dmg` and `PhoneBridge.apk` copies keep the download
 |---|---|
 | [`mac/`](mac) | The menu-bar app (Swift; builds without Xcode) |
 | [`android/`](android) | The phone app (Kotlin; signed with the same key every release, so updates install over the old version) |
+| [`windows/`](windows) | The Windows tray app, preview (C# / .NET 10 WinForms; same protocol as the Mac app) |
 | [`docs/`](docs) | Icon and documentation assets |
 
 Developed and tested on a MacBook Air (macOS 27) with a Samsung Galaxy phone (One UI 8, Android 16).

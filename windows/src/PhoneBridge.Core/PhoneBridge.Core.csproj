@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Everything that isn't Windows UI: crypto, the wire protocol, discovery, file transfers.
+       Plain net10.0 so the tests (and a phone-free fake phone) run on any OS, including the Mac this repo is built on. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>PhoneBridge.Core</RootNamespace>
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PhoneBridge.Core.Tests" />
+  </ItemGroup>
+
+</Project>

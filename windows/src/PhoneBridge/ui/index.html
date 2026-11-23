@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PhoneBridge</title>
+<!--
+  The PhoneBridge window on Windows, drawn like the Mac app's main window (mac/Sources/Views.swift MainView,
+  Discovery.swift DiscoveryView, Minimal.swift tiles and pills, PhoneDesign.swift Theme) in its default Midnight theme.
+  Hosted in WebView2 by MainWindow.cs; state comes in with chrome.webview messages, commands go back the same way.
+  Open it in any browser with ?demo=searching|pairing|connected|settings to see it without the app.
+-->
+<link rel="stylesheet" href="common.css">
+<style>  /* ---------- Searching / pairing (DiscoveryView) ---------- */
+  #searching .wrap { height: 100%; display: flex; flex-direction: column; align-items: center; padding: 0 24px; }
+  #orb { width: 330px; height: 330px; margin: 6px 0; flex: none; }
+  body[data-view="pairing"] #orb { width: 220px; height: 220px; }
+  .hint { font-size: 14px; color: var(--secondary); text-align: center; max-width: 340px; line-height: 1.4; }
+  .spacer { flex: 1 1 24px; min-height: 24px; }
+  .trouble { width: 100%; max-width: 380px; display: flex; flex-direction: column; align-items: center; gap: 12px; padding-bottom: 26px; }
+  .trouble p { font-size: 13px; color: var(--secondary); }
+  .trouble .row { display: flex; gap: 10px; width: 100%; }
+
+  .code {
+    display: none; margin: 4px 0 14px; padding: 14px 26px; border-radius: 20px;
+    font: 600 40px/1 var(--font-rounded); letter-spacing: 6px; font-variant-numeric: tabular-nums;
+  }
+  .code span { opacity: .35; margin: 0 4px; letter-spacing: 0; }
+  .pair-actions { display: none; gap: 10px; margin-top: 18px; }
+  .pair-actions .pill { min-width: 120px; padding: 10px 18px; }
+  body[data-view="pairing"] .code { display: block; }
+  body[data-view="pairing"] .pair-actions { display: flex; }
+  body[data-view="pairing"] .trouble { display: none; }
+
+  /* ---------- Connected (MainView) ---------- */
+  .brand { display: flex; flex-direction: column; align-items: center; gap: 10px; padding-top: 8px; }
+  .brand .mark {
+    width: 68px; height: 68px; border-radius: 20px; display: grid; place-items: center;
+    background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  .brand h1 { font: 400 28px/1.1 var(--font-serif); }
+  .status { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--secondary); }
+
+  .hero { position: relative; height: 190px; border-radius: 22px; overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.1); }
+  .hero canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .hero::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 96px; background: linear-gradient(transparent, rgba(0, 0, 0, .6)); }
+  .hero .label { position: absolute; left: 18px; bottom: 18px; z-index: 1; display: flex; flex-direction: column; gap: 3px; }
+  .hero .name { font: 400 22px/1.15 var(--font-serif); }
+  .hero .line { font-size: 12px; color: rgba(255, 255, 255, .7); }
+
+  .note-card { display: none; padding: 12px 14px; font-size: 12.5px; color: var(--secondary); line-height: 1.4; }
+  .note-card.show { display: block; }
+
+  /* Drop files anywhere on the window. */
+  .drop {
+    position: absolute; inset: 12px; z-index: 5; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    border-radius: 22px; border: 1.5px dashed var(--accent); background: color-mix(in srgb, var(--bg) 82%, var(--accent) 18%);
+    color: var(--accent); font-weight: 600; font-size: 14px; backdrop-filter: blur(6px); pointer-events: none;
+  }
+  .drop .ico { font-size: 28px; }
+  body.dragging .drop { display: flex; }
+
+  /* ---------- Settings ---------- */
+  .bar { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 16px 20px 8px; }
+  .bar h2 { font-size: 17px; font-weight: 600; }
+  #settings .scroll { height: calc(100% - 58px); }
+  .demo { position: fixed; right: 8px; top: 8px; z-index: 20; display: none; gap: 4px; }
+  .demo.show { display: flex; }
+  .demo button { font-size: 10px; padding: 3px 7px; border-radius: 6px; background: #333; }
+</style>
+</head>
+<body data-view="searching">
+
+
+
+<!-- Searching, and pairing (same screen: "Found <phone>" plus the code) -->
+<section class="view" id="searching">
+  <div class="wrap">
+    <div class="spacer"></div>
+    <div class="big-serif" id="search-title">Looking for<br>nearby phones</div>
+    <canvas id="orb" width="660" height="660"></canvas>
+    <div class="code card" id="code" aria-live="polite"></div>
+    <p class="hint" id="search-hint">Open PhoneBridge on your phone. Both need to be on the same Wi-Fi.</p>
+    <div class="pair-actions">
+      <button class="pill" data-cmd="pair-cancel">Cancel</button>
+      <button class="pill prominent" data-cmd="pair-ok">Pair</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="trouble">
+      <p>Having trouble finding your phone?</p>
+      <div class="row">
+        <button class="bigbtn" data-cmd="reconnect"><svg class="ico"><use href="#i-refresh"/></svg>Search again</button>
+        <button class="bigbtn" id="forget-searching" data-cmd="forget-ask"><svg class="ico"><use href="#i-phone-slash"/></svg>Forget this phone</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Connected -->
+<section class="view" id="connected">
+  <div class="scroll"><div class="stack">
+    <header class="brand">
+      <div class="mark"><canvas class="glyph" style="width:34px;height:34px"></canvas></div>
+      <h1>PhoneBridge</h1>
+      <div class="status"><i class="dot on"></i><span class="status-text">Connected</span></div>
+    </header>
+    <div class="hero">
+      <canvas id="hero"></canvas>
+      <div class="label"><div class="name" id="hero-name">Phone</div><div class="line" id="hero-line">Connected</div></div>
+    </div>
+    <div class="update card" id="update" style="display:none"></div>
+    <div class="grid">
+      <button class="tile filled" data-cmd="phone"><div class="disc"><svg class="ico"><use href="#i-phone"/></svg></div><span>Phone</span></button>
+      <button class="tile" data-cmd="type-open"><div class="disc"><svg class="ico"><use href="#i-keyboard"/></svg></div><span>Type</span></button>
+      <button class="tile" id="ring" data-cmd="ring"><div class="disc"><svg class="ico"><use href="#i-bell-waves"/></svg></div><span>Ring phone</span></button>
+      <button class="tile" data-cmd="send-files"><div class="disc"><svg class="ico"><use href="#i-share"/></svg></div><span>Send file</span></button>
+      <button class="tile" data-cmd="send-tab"><div class="disc"><svg class="ico"><use href="#i-compass"/></svg></div><span>Browser tab</span></button>
+      <button class="tile" data-cmd="sms"><div class="disc"><svg class="ico"><use href="#i-message"/></svg></div><span>SMS</span></button>
+    </div>
+    <button class="pill wide" data-cmd="settings"><svg class="ico"><use href="#i-sliders"/></svg>All settings</button>
+    <p class="caption">Closing this window keeps PhoneBridge running in the notification area. Drop files on this window, or right-click files → Send to → PhoneBridge, to send them to your phone.</p>
+  </div></div>
+  <div class="drop"><svg class="ico"><use href="#i-share"/></svg>Drop files to send to phone</div>
+</section>
+
+<!-- Settings, right in the window (like the Mac's settings pane) -->
+<section class="view" id="settings">
+  <div class="bar">
+    <div><button class="pill" data-cmd="back"><svg class="ico"><use href="#i-chevron"/></svg>Back</button></div>
+    <h2>Settings</h2>
+    <div></div>
+  </div>
+  <div class="scroll"><div class="stack" style="padding-top:8px">
+    <div class="section card">
+      <div class="section-head"><div class="badge"><svg class="ico"><use href="#i-phone"/></svg></div><h3>Phone</h3></div>
+      <div class="kv"><span>Name</span><span id="s-name">—</span></div>
+      <div class="kv"><span>Status</span><span id="s-status">—</span></div>
+      <div class="kv" id="s-battery-row"><span>Battery</span><span id="s-battery">—</span></div>
+      <p class="caption">To use the phone with another computer, or to switch back here, open PhoneBridge on the phone → Computers.</p>
+      <div class="row-btns"><button class="pill destructive" id="forget-settings" data-cmd="forget-ask"><svg class="ico"><use href="#i-phone-slash"/></svg>Forget this phone</button></div>
+    </div>
+    <div class="section card">
+      <div class="section-head"><div class="badge"><svg class="ico"><use href="#i-laptop"/></svg></div><h3>On this PC</h3></div>
+      <div class="toggle">
+        <div class="text"><b>Show phone notifications</b><span class="caption">As Windows notifications, with a reply box for chat apps.</span></div>
+        <button class="switch" role="switch" aria-checked="true" data-setting="notifications" aria-label="Show phone notifications"></button>
+      </div>
+      <hr>
+      <div class="toggle">
+        <div class="text"><b>Sync clipboard</b><span class="caption">Text and images you copy go to the phone, and back. Passwords from password managers are skipped.</span></div>
+        <button class="switch" role="switch" aria-checked="true" data-setting="clipboard" aria-label="Sync clipboard"></button>
+      </div>
+      <hr>
+      <div class="toggle">
+        <div class="text"><b>Start with Windows</b><span class="caption">PhoneBridge waits in the notification area and connects by itself.</span></div>
+        <button class="switch" role="switch" aria-checked="false" data-setting="autostart" aria-label="Start with Windows"></button>
+      </div>
+    </div>
+    <div class="section card">
+      <div class="section-head"><div class="badge"><svg class="ico"><use href="#i-info"/></svg></div><h3>About</h3></div>
+      <div class="kv"><span>PhoneBridge for Windows</span><span id="s-version">—</span></div>
+      <p class="caption">Free and open source. Everything stays between your phone and this PC: no account, no cloud.</p>
+      <div class="row-btns">
+        <button class="pill" data-cmd="phone-settings">All settings…</button>
+        <button class="pill" data-cmd="update-check">Check for updates</button>
+        <button class="pill" data-cmd="about">Project page</button>
+        <button class="pill" data-cmd="open-log">Open log</button>
+        <button class="pill" data-cmd="quit"><svg class="ico"><use href="#i-power"/></svg>Quit PhoneBridge</button>
+      </div>
+    </div>
+  </div></div>
+</section>
+
+<div class="sheet-bg" id="forget-sheet">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="forget-title">
+    <h4 id="forget-title">Forget this phone?</h4>
+    <p>You'll need to pair again: on the phone, open Computers → Pair a new computer.</p>
+    <div class="row-btns">
+      <button class="pill" data-cmd="forget-cancel">Cancel</button>
+      <button class="pill destructive" data-cmd="forget">Forget</button>
+    </div>
+  </div>
+</div>
+
+<div class="sheet-bg" id="type-sheet">
+  <div class="sheet" role="dialog" aria-modal="true" style="width:400px">
+    <h4>Type on phone</h4>
+    <p>Tap a text box on your phone, then type here — it appears in that box.</p>
+    <textarea class="field" id="type-text" rows="5" style="resize:none;font:14px/1.4 var(--font)"></textarea>
+    <div class="row-btns"><button class="pill" data-cmd="type-clear">Clear</button><button class="pill" data-cmd="type-enter">Press Enter on phone</button><button class="pill prominent" data-cmd="type-close">Done</button></div>
+  </div>
+</div>
+
+<div class="demo" id="demo"></div>
+
+<script src="common.js"></script>
+<script src="themes.js"></script>
+<script>
+"use strict";
+let state = {
+  view: "searching", status: "Looking for your phone…", note: null, phoneName: "", battery: null, charging: false,
+  ringing: false, paired: false, pairing: null, settings: { notifications: true, clipboard: true, autostart: false }, version: "",
+};
+let showSettings = false;
+
+
+// ---------- Rendering ----------
+function render() {
+  const connected = state.view === "connected";
+  const view = state.pairing ? "pairing" : connected ? (showSettings ? "settings" : "connected") : "searching";
+  document.body.dataset.view = view;
+
+  // Searching / pairing
+  $("#search-title").innerHTML = state.pairing ? "Found<br>" + esc(state.pairing.name) : "Looking for<br>nearby phones";
+  $("#search-hint").textContent = state.pairing
+    ? "Check that the 6-digit code on your phone matches the one shown here, then tap Pair on both."
+    : state.note || "Open PhoneBridge on your phone. Both need to be on the same Wi-Fi.";
+  const code = state.pairing ? state.pairing.code : "";
+  $("#code").innerHTML = code.length === 6 ? esc(code.slice(0, 3)) + "<span>·</span>" + esc(code.slice(3)) : esc(code);
+  $("#code").setAttribute("aria-label", "Pairing code " + code.split("").join(" "));
+  $("#forget-searching").style.display = state.paired ? "" : "none";
+
+  // Connected
+  document.querySelectorAll(".status-text").forEach((e) => (e.textContent = state.status));
+  $("#hero-name").textContent = state.phoneName || "Your phone";
+  const parts = ["Connected"];
+  if (state.battery != null) parts.push(state.battery + "%" + (state.charging ? " · charging" : ""));
+  $("#hero-line").textContent = parts.join(" · ");
+  const ring = $("#ring");
+  ring.classList.toggle("filled", state.ringing);
+  ring.querySelector("span").textContent = state.ringing ? "Stop ring" : "Ring phone";
+
+  const up = $("#update");
+  up.style.display = state.update && connected ? "" : "none";
+  up.innerHTML = state.update ? `<div style="display:flex;align-items:center;gap:12px;padding:12px 14px"><span style="flex:1;font-size:12.5px">PhoneBridge ${esc(state.update)} is available</span><button class="pill prominent" data-cmd="update-install">Update now</button></div>` : "";
+
+  // Settings
+  $("#s-name").textContent = state.phoneName || "—";
+  $("#s-status").textContent = state.status;
+  $("#s-battery-row").style.display = state.battery != null ? "" : "none";
+  $("#s-battery").textContent = state.battery != null ? state.battery + "%" + (state.charging ? " · charging" : "") : "";
+  $("#s-version").textContent = state.version;
+  $("#forget-settings").style.display = state.paired ? "" : "none";
+  document.querySelectorAll(".switch").forEach((s) => s.setAttribute("aria-checked", String(!!state.settings[s.dataset.setting])));
+  $("#forget-title").textContent = "Forget " + (state.phoneName || "this phone") + "?";
+}
+
+
+// ---------- Commands ----------
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-cmd], [data-setting]");
+  if (!b) return;
+  if (b.dataset.setting) {
+    const key = b.dataset.setting;
+    state.settings[key] = !state.settings[key];
+    render();
+    send("set", { key, value: state.settings[key] });
+    return;
+  }
+  const cmd = b.dataset.cmd;
+  switch (cmd) {
+    case "settings": showSettings = true; render(); return;
+    case "back": showSettings = false; render(); return;
+    case "forget-ask": $("#forget-sheet").classList.add("show"); return;
+    case "forget-cancel": $("#forget-sheet").classList.remove("show"); return;
+    case "forget": $("#forget-sheet").classList.remove("show"); showSettings = false; break;
+    case "toggle-notifications":
+      state.settings.notifications = !state.settings.notifications; render();
+      send("set", { key: "notifications", value: state.settings.notifications }); return;
+    case "ring": state.ringing = !state.ringing; render(); break; // the phone's ring_state confirms it
+    case "type-open": $("#type-sheet").classList.add("show"); setTimeout(() => $("#type-text").focus(), 30); return;
+    case "type-close": $("#type-sheet").classList.remove("show"); return;
+    case "type-clear": $("#type-text").value = ""; send("type-text", { text: "" }); return;
+    case "type-enter": send("type-enter"); return;
+  }
+  send(cmd);
+});
+document.addEventListener("input", (e) => { if (e.target.id === "type-text") send("type-text", { text: e.target.value }); });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    if ($("#type-sheet").classList.contains("show")) $("#type-sheet").classList.remove("show");
+    else if ($("#forget-sheet").classList.contains("show")) $("#forget-sheet").classList.remove("show");
+    else if (state.pairing) send("pair-cancel");
+    else if (showSettings) { showSettings = false; render(); }
+    else send("hide");
+  }
+  if (e.key === "Enter" && state.pairing && !e.target.closest("button")) send("pair-ok");
+});
+document.addEventListener("contextmenu", (e) => e.preventDefault());
+
+// Files dropped on the window go to the phone. WebView2 hands the host their real paths.
+let dragDepth = 0;
+const hasFiles = (e) => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files");
+document.addEventListener("dragenter", (e) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; if (state.view === "connected") document.body.classList.add("dragging"); });
+document.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove("dragging"); } });
+document.addEventListener("dragover", (e) => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = state.view === "connected" ? "copy" : "none"; } });
+document.addEventListener("drop", (e) => {
+  e.preventDefault(); dragDepth = 0; document.body.classList.remove("dragging");
+  if (state.view !== "connected" || !e.dataTransfer.files.length) return;
+  if (host && host.postMessageWithAdditionalObjects) host.postMessageWithAdditionalObjects({ cmd: "drop" }, e.dataTransfer.files);
+});
+
+if (host) host.addEventListener("message", (e) => {
+  const m = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
+  if (m.type === "state") {
+    const wasPairing = !!state.pairing;
+    state = Object.assign(state, m.state);
+    if (state.theme) { applyTheme(state.theme); drawGlyphs(); }
+    if (state.view !== "connected") showSettings = false;
+    if (m.state.showSettings) showSettings = true;
+    if (!wasPairing && state.pairing) setTimeout(() => $(".pair-actions .prominent").focus(), 50);
+    render();
+  }
+});
+
+function drawGlyphs() {
+  $$("canvas.glyph").forEach((cv) => { cv.width = cv.height = 68; const ctx = cv.getContext("2d"); ctx.clearRect(0, 0, 68, 68); themeGlyph(ctx, 68); });
+}
+setTimeout(drawGlyphs, 500);
+drawGlyphs();
+
+let last = 0;
+function frame(ms) {
+  requestAnimationFrame(frame);
+  if (ms - last < 33) return; // ~30 fps, like the Mac's TimelineView
+  last = ms;
+  const t = ms / 1000;
+  const v = document.body.dataset.view;
+  if (v === "searching" || v === "pairing") drawOrb(t);
+  if (v === "connected") drawHero(t);
+}
+requestAnimationFrame(frame);
+render();
+if (host) send("ready");
+
+// ---------- Demo mode (open the file in a browser with ?demo=…) ----------
+const demo = new URLSearchParams(location.search).get("demo") || window.__demo;
+if (!host && demo) {
+  const states = {
+    searching: { view: "searching", status: "Looking for your phone…", paired: true },
+    refused: { view: "searching", status: "Looking for your phone…", paired: true,
+      note: "“Pixel 9” is using another computer. To use it here, open PhoneBridge on the phone → Computers and tap Connect next to this PC." },
+    pairing: { view: "searching", status: "Pairing with Pixel 9…", pairing: { name: "Pixel 9", code: "897505" } },
+    connected: { view: "connected", status: "Connected to Pixel 9", phoneName: "Pixel 9", battery: 82, charging: true, paired: true, version: "0.23.0" },
+  };
+  const bar = $("#demo"); bar.classList.add("show");
+  const go = (k) => { state = Object.assign({}, state, { pairing: null, note: null }, states[k === "settings" ? "connected" : k]); showSettings = k === "settings"; render(); };
+  for (const k of [...Object.keys(states), "settings"]) { const b = document.createElement("button"); b.textContent = k; b.onclick = () => go(k); bar.appendChild(b); }
+  go(demo in states || demo === "settings" ? demo : "searching");
+  if (new URLSearchParams(location.search).has("clean") || window.__demo) bar.classList.remove("show");
+}
+</script>
+</body>
+</html>

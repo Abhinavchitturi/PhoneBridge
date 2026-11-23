@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The Windows tray app. Builds on Windows, and also on macOS/Linux thanks to EnableWindowsTargeting
+       (it only runs on Windows 10 1903 or newer). See windows/README.md for the build and publish commands. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.18362.0</SupportedOSPlatformVersion>
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- Only for System.Windows.Automation (reading the browser's address bar for "Send tab"); no WPF UI. -->
+    <UseWPF>true</UseWPF>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>PhoneBridge</AssemblyName>
+    <RootNamespace>PhoneBridge</RootNamespace>
+    <ApplicationIcon>Assets\PhoneBridge.ico</ApplicationIcon>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <!-- Keep in step with the Mac and Android apps (release.sh requires matching versions). -->
+    <Version>0.23</Version>
+    <Product>PhoneBridge</Product>
+    <Company>PhoneBridge</Company>
+    <Description>PhoneBridge for Windows</Description>
+    <!-- Used by `dotnet publish -r win-x64` (see windows/build.ps1 / build.sh): one PhoneBridge.exe, runtime included. -->
+    <SelfContained Condition="'$(RuntimeIdentifier)' != ''">true</SelfContained>
+    <PublishSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
+    <DebugType>embedded</DebugType>
+    
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- UseWPF drops System.IO from the implicit usings (WPF has its own Path); bring it back. -->
+    <Using Include="System.IO" />
+    <Using Include="System.Net.Http" />
+    <Using Remove="System.Windows" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../PhoneBridge.Core/PhoneBridge.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\PhoneBridge.ico" LogicalName="PhoneBridge.ico" />
+    <EmbeddedResource Include="Assets\PhoneBridge.png" LogicalName="PhoneBridge.png" />
+    <EmbeddedResource Include="ui\*.html;ui\*.css;ui\*.js" LogicalName="%(Filename)%(Extension)" />
+    <!-- The Mac app's theme pictures (the small ones used for glyphs, corners and banners), served to the pages. -->
+    <EmbeddedResource Include="..\..\..\mac\Assets\themeart_bat.png;..\..\..\mac\Assets\themeart_batoval.png;..\..\..\mac\Assets\themeart_mask.png;..\..\..\mac\Assets\themeart_spider.png;..\..\..\mac\Assets\themeart_helmet.png;..\..\..\mac\Assets\themeart_reactor.png;..\..\..\mac\Assets\themeart_thor.png;..\..\..\mac\Assets\themeart_hammer.png;..\..\..\mac\Assets\themeart_web.png" LogicalName="art/%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3485.44" />
+  </ItemGroup>
+
+</Project>
