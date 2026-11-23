@@ -267,6 +267,8 @@ public sealed class PhoneLink : IDisposable
         private bool _sentTrust, _gotTrust;
         /// <summary>Newer phones (hello v3+) send "pair" once they're willing to pair; until then don't show a code.</summary>
         private bool _awaitingPair;
+        /// <summary>The phone is ours: send our "trust" once the phone sends its own (see below).</summary>
+        private bool _trustWhenTrusted;
         private Sealer? _send, _recv;
 
         public volatile bool Ready;
@@ -350,7 +352,11 @@ public sealed class PhoneLink : IDisposable
                     var trusted = link._store.TrustedPhone;
                     if (trusted != null && trusted.AsSpan().SequenceEqual(pub))
                     {
-                        _ = SendTrust();
+                        // Our paired phone. It answers with "trust" when it lets us in, or "reject" (busy) and hangs up.
+                        // Wait for that answer before sending our own "trust": if it arrived after the phone hung up,
+                        // Windows would reset the connection and throw away the unread "reject", so we'd never know why.
+                        // (Both sides send "trust" independently, so the order doesn't matter to the phone.)
+                        _trustWhenTrusted = true;
                     }
                     else if (trusted != null)
                     {
@@ -379,6 +385,11 @@ public sealed class PhoneLink : IDisposable
                     if (_ikm == null) throw new InvalidDataException("trust before hello");
                     _recv = new Sealer(Keys.SessionKey(_ikm, _salt, "p2m"));
                     lock (this) _gotTrust = true;
+                    if (_trustWhenTrusted)
+                    {
+                        _trustWhenTrusted = false;
+                        _ = SendTrust();
+                    }
                     MaybeReady();
                     break;
                 case "reject":
