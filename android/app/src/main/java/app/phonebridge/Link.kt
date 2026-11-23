@@ -28,6 +28,10 @@ const val TAG = "PhoneBridge"
  * The phone can be paired with several computers ([Computers]) but talks to one at a time. Every paired computer
  * keeps dialling in while it isn't connected; [admit] lets in only the one we want and turns the rest away with
  * {"t":"reject","why":"busy"}. Unknown computers get "why":"unpaired" unless "Pair a new computer" is on (or nothing is paired yet).
+ *
+ * "Connect here" on a computer that was turned away: its hello says "switch":true. The phone then asks it to prove it is
+ * that paired computer ({"t":"prove"} → {"t":"proof","key":HKDF(session ikm, salt, "switch")}, which needs its private
+ * key) before dropping the computer in use and letting it in — so a stranger can't kick your computer off.
  */
 object Link {
     const val PORT = 47800
@@ -148,11 +152,33 @@ object Link {
         emptyList()
     }
 
-    enum class Admit { TRUST, PAIR, BUSY, STRANGER }
+    enum class Admit { TRUST, PAIR, BUSY, STRANGER, VERIFY }
 
     /** Decides what to do with a computer that just said hello. A TRUST or PAIR answer makes [c] the connection in use. */
+    internal fun admit(c: Conn, wantsSwitch: Boolean = false): Admit {
+        val a = admitPlain(c)
+        // "Connect here" on a paired computer: it may take the phone over once it proves who it is (see [switchTo]).
+        // Not while the phone is pairing a new computer (the person is in the middle of that, on the phone).
+        return if (a == Admit.BUSY && wantsSwitch && !pairingNew && Computers.get(app, c.peerId) != null) Admit.VERIFY else a
+    }
+
+    /** A computer that asked to switch (and proved it's the paired one) becomes the one in use; the old one is dropped. */
+    internal fun switchTo(c: Conn): Boolean {
+        val old: Conn?
+        synchronized(this) {
+            if (pairingNew) return false
+            old = conn
+            conn = c
+            wanted = null
+            notFound = null
+        }
+        if (old !== c) old?.close() // its onClosed() sees it's no longer the one in use and leaves the status alone
+        Log.i(TAG, "switched to ${c.macName} at its request")
+        return true
+    }
+
     @Synchronized
-    internal fun admit(c: Conn): Admit {
+    private fun admitPlain(c: Conn): Admit {
         val now = System.currentTimeMillis()
         expire(now)
         val id = c.peerId
@@ -360,16 +386,17 @@ class Conn(private val sock: Socket) {
             writePlain(
                 JSONObject().put("t", "hello").put("name", Link.deviceName)
                     .put("pub", Crypto.b64e(Crypto.pubRaw)).put("epub", Crypto.b64e(ephemeral.pub))
-                    .put("nonce", Crypto.b64e(myNonce)).put("v", 3) // v3: says "pair" before the computer shows a code
+                    .put("nonce", Crypto.b64e(myNonce)).put("v", 4) // v3: says "pair" before the computer shows a code; v4: "switch"
             )
 
-            when (Link.admit(this)) {
+            when (Link.admit(this, wantsSwitch = hello.optBoolean("switch", false))) {
                 Link.Admit.TRUST -> sendTrust()
                 Link.Admit.PAIR -> {
                     writePlain(JSONObject().put("t", "pair")) // newer computers wait for this before showing the code
                     Link.setStatus("Pairing with $macName…")
                     Pairing.ask(Crypto.pairingCode(shared), macName, this)
                 }
+                Link.Admit.VERIFY -> writePlain(JSONObject().put("t", "prove")) // its "proof" is handled below
                 Link.Admit.BUSY -> {
                     // Paired, but the phone is using (or waiting for) another computer. It'll keep retrying.
                     writePlain(JSONObject().put("t", "reject").put("why", "busy"))
@@ -398,6 +425,16 @@ class Conn(private val sock: Socket) {
                         synchronized(this) { gotTrust = true; maybeReady() }
                     }
                     "reject" -> return
+                    "proof" -> {
+                        // Asked to switch to this computer: it must hold the paired computer's private key.
+                        val want = Crypto.hkdf(ikm, salt, "switch")
+                        val got = runCatching { Crypto.b64d(o.getString("key")) }.getOrNull()
+                        if (got == null || !java.security.MessageDigest.isEqual(want, got) || !Link.switchTo(this)) {
+                            writePlain(JSONObject().put("t", "reject").put("why", "busy"))
+                            return
+                        }
+                        sendTrust()
+                    }
                 }
             }
         } catch (e: Exception) {

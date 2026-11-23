@@ -658,7 +658,19 @@ function render() {
      <button class="item${tab === "settings" ? " sel" : ""}" data-cmd="tab" data-tab="settings" title="Settings">${icon("sliders")}<span>Settings</span></button>`;
   const online = app.connected || tab === "settings" || tab === "notifications" || tab === "clipboard";
   $$(".tab").forEach((t) => t.classList.toggle("show", online ? t.id === "t-" + tab : t.id === "t-offline"));
-  if (!online) return renderPanel();
+  if (!online) {
+    // The phone is connected to another computer: say so, and offer to switch it here (v4 phones).
+    const busy = !!app.busy && (app.canSwitch || app.switching);
+    $("#off-title").innerHTML = app.switching ? "Switching to<br>this PC…" : busy ? "In use on<br>another computer" : "Looking for<br>your phone";
+    $("#off-hint").textContent = app.switching ? `Asking “${app.busy}” to switch to this PC…`
+      : busy ? `“${app.busy}” is connected to your other computer. Use it here instead — the other computer lets go.`
+      : "Open PhoneBridge on your phone. Both need to be on the same Wi-Fi.";
+    $("#off-switch").style.display = busy ? "" : "none";
+    $("#off-switch").disabled = !!app.switching;
+    $("#off-switch").textContent = app.switching ? "Switching…" : "Use it on this PC";
+    $("#off-search").style.display = busy ? "none" : "";
+    return renderPanel();
+  }
   ({ messages: renderMessages, photos: renderPhotos, calls: renderCalls, apps: renderApps, clipboard: renderClipboard,
      device: renderDevice, notifications: renderHistory, settings: renderSettings })[tab]();
   renderPanel();
@@ -781,7 +793,7 @@ document.addEventListener("click", (e) => {
       return render();
     case "palette": return openPalette(!P.palette.open);
     case "dnd": return tx({ t: "phone_dnd", on: !app.dnd });
-    case "ring": case "send-files": case "mirror": case "reconnect": case "open-log": case "quit": case "stream-setup":
+    case "ring": case "send-files": case "mirror": case "reconnect": case "switch-here": case "open-log": case "quit": case "stream-setup":
     case "update-install": case "update-check": return send(ds.cmd);
     case "stream-pair": return send("stream-pair", { hostPort: $("#sp-host").value, code: $("#sp-code").value });
     case "stream-close": $("#stream-sheet").remove(); return;

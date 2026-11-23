@@ -42,6 +42,12 @@ internal sealed partial class TrayApp : ApplicationContext
     private readonly ToolStripMenuItem _forget = new("Forget phone…");
     private readonly ToolStripMenuItem _autoStart = new("Start with Windows") { CheckOnClick = true };
     private readonly ToolStripMenuItem _updateItem = new("Check for Updates…");
+    private readonly ToolStripMenuItem _switchItem = new("Use my phone on this PC") { Visible = false };
+    /// <summary>The phone said it's busy with another computer (its name), until it lets us in or stops answering.</summary>
+    private string? _busyPhone;
+    /// <summary>"Connect here" was pressed and we're waiting for the phone to switch.</summary>
+    private bool _switching;
+    private System.Windows.Forms.Timer? _switchTimeout;
 
     private string _status = "Looking for your phone…";
     private string? _note;
@@ -224,6 +230,7 @@ internal sealed partial class TrayApp : ApplicationContext
         _showNotifs.Checked = _store.GetBool("showNotifications", true);
         _showNotifs.CheckedChanged += (_, _) => _store.SetBool("showNotifications", _showNotifs.Checked);
         _forget.Click += (_, _) => Forget();
+        _switchItem.Click += (_, _) => SwitchHere();
         _updateItem.Click += (_, _) => { if (_update != null) _updater?.Install(); else _updater?.Check(manual: true); };
         try { _autoStart.Checked = AutoStart.Enabled; } catch (Exception e) { Log.Write("autostart read: " + e.Message); }
         _autoStart.CheckedChanged += (_, _) =>
@@ -238,7 +245,7 @@ internal sealed partial class TrayApp : ApplicationContext
             var open = new ToolStripMenuItem("Open PhoneBridge", null, (_, _) => _window.ShowAndActivate());
             open.Font = new Font(open.Font, FontStyle.Bold);
             m.AddRange([
-                _statusItem, _noteItem, _batteryItem,
+                _statusItem, _noteItem, _batteryItem, _switchItem,
                 new ToolStripSeparator(),
                 open,
                 new ToolStripMenuItem("Messages, Photos & Calls…", null, (_, _) => OpenPhone("messages")),
@@ -273,7 +280,9 @@ internal sealed partial class TrayApp : ApplicationContext
     private void Refresh()
     {
         if (OffUi(nameof(Refresh))) { _ui.Post(_ => Refresh(), null); return; }
-        _statusItem.Text = _status;
+        _statusItem.Text = _switching ? $"Switching {_busyPhone ?? _phoneName} to this PC…" : _busyPhone != null ? $"{_busyPhone} is on another computer" : _status;
+        _switchItem.Visible = _busyPhone != null && !_switching && _link?.PhoneCanSwitch == true;
+        _switchItem.Text = $"Use {_busyPhone} on this PC";
         _noteItem.Text = _note ?? "";
         _noteItem.Visible = _note != null;
         _batteryItem.Visible = _connected && _battery != null;
@@ -315,6 +324,10 @@ internal sealed partial class TrayApp : ApplicationContext
                 break;
             case LinkState.Connected:
                 _connected = true;
+                _busyPhone = null;
+                _switching = false;
+                _switchTimeout?.Dispose();
+                _switchTimeout = null;
                 SetNote(null);
                 _phoneName = name;
                 _status = $"Connected to {name}";
@@ -333,7 +346,12 @@ internal sealed partial class TrayApp : ApplicationContext
         switch (why)
         {
             case "busy":
-                SetNote($"“{name}” is using another computer. To use it here, open PhoneBridge on the phone → Computers and tap Connect next to this PC.");
+                _busyPhone = name;
+                if (_switching && _link.PhoneCanSwitch) return; // the switch request's own connection is on its way
+                _switching = false;
+                SetNote(_link.PhoneCanSwitch
+                    ? $"“{name}” is connected to another computer."
+                    : $"“{name}” is connected to another computer. To use it here, open PhoneBridge on the phone → Computers and tap Connect next to this PC (or update PhoneBridge on the phone to switch from here).");
                 break;
             case "unpaired":
                 SetNote($"“{name}” is paired with other computers. To add this PC, open PhoneBridge on the phone → Computers → Pair a new computer.");
@@ -344,8 +362,30 @@ internal sealed partial class TrayApp : ApplicationContext
         // The phone stopped answering after a while: back to the usual hint.
         _noteClear?.Dispose();
         _noteClear = new System.Windows.Forms.Timer { Interval = 20_000 };
-        _noteClear.Tick += (_, _) => { SetNote(null); Refresh(); };
+        _noteClear.Tick += (_, _) => { SetNote(null); _busyPhone = null; Refresh(); };
         _noteClear.Start();
+        Refresh();
+    }
+
+    /// <summary>"Connect here": asks the busy phone to switch to this PC (it checks this PC's pairing key first).</summary>
+    private void SwitchHere()
+    {
+        if (_connected) return;
+        _switching = true;
+        SetNote(null);
+        _link.RequestSwitch();
+        _switchTimeout?.Dispose();
+        _switchTimeout = new System.Windows.Forms.Timer { Interval = 15_000 };
+        _switchTimeout.Tick += (_, _) =>
+        {
+            _switchTimeout?.Dispose();
+            _switchTimeout = null;
+            if (!_switching) return;
+            _switching = false;
+            SetNote($"Couldn't switch “{_busyPhone ?? _phoneName}” to this PC. Make sure PhoneBridge is open on the phone, or tap Connect next to this PC in its Computers list.");
+            Refresh();
+        };
+        _switchTimeout.Start();
         Refresh();
     }
 
@@ -453,6 +493,9 @@ internal sealed partial class TrayApp : ApplicationContext
             ["view"] = _connected ? "connected" : "searching",
             ["status"] = _status,
             ["note"] = _note,
+            ["busy"] = _busyPhone,
+            ["canSwitch"] = _link?.PhoneCanSwitch == true,
+            ["switching"] = _switching,
             ["phoneName"] = _connected || _store.TrustedPhone != null ? _phoneName : "",
             ["battery"] = _connected ? _battery : null,
             ["charging"] = _charging,
@@ -484,6 +527,7 @@ internal sealed partial class TrayApp : ApplicationContext
             case "send-tab": _control.SendTabToPhone(); break;
             case "open-downloads": Shell.Reveal(_transfers.Folder); break;
             case "reconnect": _link.Reconnect(); break;
+            case "switch-here": SwitchHere(); break;
             case "forget": Forget(confirmed: true); break;
             case "about": Shell.Open(Repo); break;
             case "open-log": Shell.Reveal(Path.Combine(Log.Dir, "phonebridge.log")); break;

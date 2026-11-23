@@ -30,6 +30,10 @@
   .pair-actions .pill { min-width: 120px; padding: 10px 18px; }
   body[data-view="pairing"] .code { display: block; }
   body[data-view="pairing"] .pair-actions { display: flex; }
+  .switch-actions { display: none; margin-top: 18px; }
+  .switch-actions .pill { min-width: 200px; padding: 11px 22px; }
+  body.busy[data-view="searching"] .switch-actions { display: flex; }
+  body.busy #orb { opacity: .45; }
   body[data-view="pairing"] .trouble { display: none; }
 
   /* ---------- Connected (MainView) ---------- */
@@ -81,6 +85,9 @@
     <canvas id="orb" width="660" height="660"></canvas>
     <div class="code card" id="code" aria-live="polite"></div>
     <p class="hint" id="search-hint">Open PhoneBridge on your phone. Both need to be on the same Wi-Fi.</p>
+    <div class="switch-actions">
+      <button class="pill prominent" id="switch-btn" data-cmd="switch-here">Use it on this PC</button>
+    </div>
     <div class="pair-actions">
       <button class="pill" data-cmd="pair-cancel">Cancel</button>
       <button class="pill prominent" data-cmd="pair-ok">Pair</button>
@@ -211,10 +218,19 @@ function render() {
   document.body.dataset.view = view;
 
   // Searching / pairing
-  $("#search-title").innerHTML = state.pairing ? "Found<br>" + esc(state.pairing.name) : "Looking for<br>nearby phones";
+  // Busy: the phone is connected to another computer; "Use it on this PC" asks it to switch (v4 phones).
+  const busy = !state.pairing && !connected && !!state.busy && (state.canSwitch || state.switching);
+  document.body.classList.toggle("busy", busy);
+  $("#search-title").innerHTML = state.pairing ? "Found<br>" + esc(state.pairing.name)
+    : state.switching ? "Switching to<br>this PC…"
+    : busy ? "In use on<br>another computer" : "Looking for<br>nearby phones";
   $("#search-hint").textContent = state.pairing
     ? "Check that the 6-digit code on your phone matches the one shown here, then tap Pair on both."
+    : state.switching ? `Asking “${state.busy}” to switch to this PC…`
+    : busy ? `“${state.busy}” is connected to your other computer. Use it here instead — the other computer lets go.`
     : state.note || "Open PhoneBridge on your phone. Both need to be on the same Wi-Fi.";
+  $("#switch-btn").disabled = !!state.switching;
+  $("#switch-btn").textContent = state.switching ? "Switching…" : "Use it on this PC";
   const code = state.pairing ? state.pairing.code : "";
   $("#code").innerHTML = code.length === 6 ? esc(code.slice(0, 3)) + "<span>·</span>" + esc(code.slice(3)) : esc(code);
   $("#code").setAttribute("aria-label", "Pairing code " + code.split("").join(" "));
@@ -340,11 +356,12 @@ if (!host && demo) {
     searching: { view: "searching", status: "Looking for your phone…", paired: true },
     refused: { view: "searching", status: "Looking for your phone…", paired: true,
       note: "“Pixel 9” is using another computer. To use it here, open PhoneBridge on the phone → Computers and tap Connect next to this PC." },
+    busy: { view: "searching", status: "Looking for your phone…", paired: true, busy: "Pixel 9", canSwitch: true },
     pairing: { view: "searching", status: "Pairing with Pixel 9…", pairing: { name: "Pixel 9", code: "897505" } },
     connected: { view: "connected", status: "Connected to Pixel 9", phoneName: "Pixel 9", battery: 82, charging: true, paired: true, version: "0.23.0" },
   };
   const bar = $("#demo"); bar.classList.add("show");
-  const go = (k) => { state = Object.assign({}, state, { pairing: null, note: null }, states[k === "settings" ? "connected" : k]); showSettings = k === "settings"; render(); };
+  const go = (k) => { state = Object.assign({}, state, { pairing: null, note: null, busy: null, canSwitch: false, switching: false }, states[k === "settings" ? "connected" : k]); showSettings = k === "settings"; render(); };
   for (const k of [...Object.keys(states), "settings"]) { const b = document.createElement("button"); b.textContent = k; b.onclick = () => go(k); bar.appendChild(b); }
   go(demo in states || demo === "settings" ? demo : "searching");
   if (new URLSearchParams(location.search).has("clean") || window.__demo) bar.classList.remove("show");

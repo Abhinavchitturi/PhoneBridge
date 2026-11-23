@@ -33,6 +33,9 @@ public sealed class LinkOptions
 /// (v3 phones then send {"t":"pair"} when they're willing to pair with us, or {"t":"reject","why":"busy"|"unpaired"}).
 /// Each side sends {"t":"trust"} once it trusts the other's key; after sending trust, everything that side sends is
 /// AES-GCM, and the session is up once both trusts have crossed.
+/// "Connect here" (<see cref="RequestSwitch"/>): when the phone is busy with another computer, our next hello says
+/// "switch":true; a v4 phone answers {"t":"prove"}, we answer {"t":"proof","key":HKDF(ikm, salt, "switch")} (only the
+/// paired computer can work that out), and the phone drops the other computer and trusts us.
 /// Events fire on background threads.
 /// </summary>
 public sealed class PhoneLink : IDisposable
@@ -48,6 +51,19 @@ public sealed class PhoneLink : IDisposable
     public event Action<string, string>? Refused;
     /// <summary>(code, phoneName, cancelled-when-the-request-goes-away) → true if the user confirmed the code.</summary>
     public Func<string, string, CancellationToken, Task<bool>> AskPairing { get; set; } = (_, _, _) => Task.FromResult(false);
+
+    /// <summary>Whether the phone (as of its last hello) can switch to this computer on request (v4+ phone app).</summary>
+    public bool PhoneCanSwitch { get; private set; }
+    private DateTime _switchUntil;
+
+    /// <summary>"Connect here": asks the phone to drop the computer it's using and switch to this one, now.</summary>
+    public void RequestSwitch()
+    {
+        lock (_gate) _switchUntil = DateTime.UtcNow.AddSeconds(30);
+        Reconnect();
+    }
+
+    private bool WantsSwitch { get { lock (_gate) return DateTime.UtcNow < _switchUntil; } }
 
     private readonly LinkStore _store;
     private readonly string _computerName;
@@ -301,6 +317,7 @@ public sealed class PhoneLink : IDisposable
                     ["nonce"] = Convert.ToBase64String(_myNonce),
                     ["v"] = 2, // what the Mac sends; the phone doesn't branch on it
                     ["platform"] = "windows",
+                    ["switch"] = link.WantsSwitch ? true : null,
                 });
                 while (!_closed.IsCancellationRequested)
                     HandleFrame(await Framing.ReadAsync(_stream, _closed.Token));
@@ -349,6 +366,7 @@ public sealed class PhoneLink : IDisposable
                     _peerPub = pub;
                     _peerName = Str(msg, "name") ?? "Phone";
                     _salt = [.. _myNonce, .. nonce];
+                    link.PhoneCanSwitch = (msg["v"] is JsonValue hv && hv.TryGetValue<int>(out var hver) ? hver : 0) >= 4;
                     var trusted = link._store.TrustedPhone;
                     if (trusted != null && trusted.AsSpan().SequenceEqual(pub))
                     {
@@ -391,6 +409,11 @@ public sealed class PhoneLink : IDisposable
                         _ = SendTrust();
                     }
                     MaybeReady();
+                    break;
+                case "prove":
+                    // We asked to switch: show the phone we hold this pairing's key. Its "trust" follows.
+                    if (_ikm == null || !_trustWhenTrusted) throw new InvalidDataException("prove out of turn");
+                    _ = SendPlain(new JsonObject { ["t"] = "proof", ["key"] = Convert.ToBase64String(Keys.SessionKey(_ikm, _salt, "switch")) });
                     break;
                 case "reject":
                     if (Str(msg, "why") is { } why) link.Refused?.Invoke(why, _peerName);
@@ -440,6 +463,7 @@ public sealed class PhoneLink : IDisposable
                 Ready = true;
                 WasReady = true;
             }
+            lock (link._gate) link._switchUntil = default; // done: don't take the phone over again on a later reconnect
             if (ep.AddressFamily == AddressFamily.InterNetwork) link._store.LastHost = ep.Address.ToString();
             link.StateChanged?.Invoke(LinkState.Connected, _peerName);
         }
