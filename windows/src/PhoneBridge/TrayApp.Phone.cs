@@ -161,8 +161,22 @@ internal sealed partial class TrayApp
 
     // MARK: State for the pages
 
+    private int _uiThread;
+
+    /// <summary>
+    /// True (and logged, with the caller) when called from a background thread. Windows and WebView2 may only be used from
+    /// the UI thread, so such calls are handed over to it instead of crashing.
+    /// </summary>
+    private bool OffUi(string what)
+    {
+        if (Environment.CurrentManagedThreadId == _uiThread) return false;
+        Log.Write($"{what} called off the UI thread, moved onto it:\n{Environment.StackTrace}");
+        return true;
+    }
+
     private void SchedulePhoneState()
     {
+        if (OffUi(nameof(SchedulePhoneState))) { _ui.Post(_ => SchedulePhoneState(), null); return; }
         if (_phoneStateDebounce == null)
         {
             _phoneStateDebounce = new System.Windows.Forms.Timer { Interval = 120 };
@@ -174,6 +188,7 @@ internal sealed partial class TrayApp
 
     private void PushPhoneState()
     {
+        if (OffUi(nameof(PushPhoneState))) { _ui.Post(_ => PushPhoneState(), null); return; }
         if (_phoneWin == null || _history == null) return;
         var items = _history.Items;
         _phoneWin.Push("state", new JsonObject
