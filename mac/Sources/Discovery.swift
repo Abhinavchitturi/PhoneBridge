@@ -13,10 +13,15 @@ struct DiscoveryView: View {
         }
     }
 
+    /// The phone is connected to another computer and can switch here on request.
+    private var canSwitch: Bool { bridge.busyPhone != nil && (bridge.phoneCanSwitch || bridge.switching) }
+
     private func searching(_ t: AppTheme) -> some View {
         VStack(spacing: 0) {
             Spacer(minLength: 24)
-            Text(bridge.foundPhone == nil ? "Looking for\nnearby phones" : "Found\n\(bridge.foundPhone ?? "")")
+            Text(bridge.foundPhone != nil ? "Found\n\(bridge.foundPhone ?? "")"
+                 : bridge.switching ? "Switching to\nthis Mac…"
+                 : canSwitch ? "In use on\nanother computer" : "Looking for\nnearby phones")
                 .font(.system(size: 34, weight: .regular, design: .serif))
                 .multilineTextAlignment(.center).lineSpacing(2)
                 .padding(.horizontal, 24)
@@ -26,6 +31,14 @@ struct DiscoveryView: View {
                  : bridge.phoneNote ?? "Open PhoneBridge on your phone. Both need to be on the same Wi-Fi.")
                 .font(.system(size: 14)).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 .frame(maxWidth: 340).fixedSize(horizontal: false, vertical: true)
+            if canSwitch && bridge.foundPhone == nil {
+                Button { bridge.switchHere() } label: {
+                    Text(bridge.switching ? "Switching…" : "Use it on this Mac").font(.system(size: 14, weight: .semibold))
+                        .frame(minWidth: 200).frame(height: 40).padding(.horizontal, 8)
+                        .background(Capsule().fill(.white)).foregroundStyle(.black)
+                }
+                .buttonStyle(.plain).disabled(bridge.switching).padding(.top, 16)
+            }
             Spacer(minLength: 24)
             VStack(spacing: 12) {
                 Text("Having trouble finding your phone?").font(.system(size: 13)).foregroundStyle(.secondary)

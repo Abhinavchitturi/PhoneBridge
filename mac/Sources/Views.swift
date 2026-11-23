@@ -308,6 +308,10 @@ struct MenuContent: View {
 
     var body: some View {
         Text(bridge.status)
+        if !bridge.connected, let busy = bridge.busyPhone, bridge.phoneCanSwitch || bridge.switching {
+            Button(bridge.switching ? "Switching \(busy) to this Mac…" : "Use \(busy) on this Mac") { bridge.switchHere() }
+                .disabled(bridge.switching)
+        }
         if bridge.connected, let level = bridge.battery {
             Text("Battery \(level)%\(bridge.charging ? " — charging" : "")")
         }

@@ -348,9 +348,10 @@
 
   <div id="content">
     <div class="offline tab" id="t-offline">
-      <div class="big-serif">Looking for<br>your phone</div>
-      <p style="max-width:340px">Open PhoneBridge on your phone. Both need to be on the same Wi-Fi.</p>
-      <button class="bigbtn" style="flex:none;width:200px" data-cmd="reconnect"><svg class="ico"><use href="#i-refresh"/></svg>Search again</button>
+      <div class="big-serif" id="off-title">Looking for<br>your phone</div>
+      <p style="max-width:360px" id="off-hint">Open PhoneBridge on your phone. Both need to be on the same Wi-Fi.</p>
+      <button class="pill prominent" style="display:none;min-width:200px;padding:11px 22px" id="off-switch" data-cmd="switch-here">Use it on this PC</button>
+      <button class="bigbtn" style="flex:none;width:200px" id="off-search" data-cmd="reconnect"><svg class="ico"><use href="#i-refresh"/></svg>Search again</button>
     </div>
 
     <!-- Messages -->

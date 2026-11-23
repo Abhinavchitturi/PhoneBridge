@@ -197,7 +197,8 @@ internal sealed partial class TrayApp
         {
             ["state"] = new JsonObject
             {
-                ["connected"] = _connected, ["phoneName"] = _phoneName, ["battery"] = _connected ? _battery : null,
+                ["connected"] = _connected, ["busy"] = _busyPhone, ["canSwitch"] = _link?.PhoneCanSwitch == true, ["switching"] = _switching,
+                ["phoneName"] = _phoneName, ["battery"] = _connected ? _battery : null,
                 ["charging"] = _charging, ["eta"] = _batteryWatch.Eta, ["ringing"] = _ringing, ["dnd"] = _dnd, ["theme"] = _theme,
                 ["history"] = new JsonArray(items.Select(i => (JsonNode)new JsonObject
                 {
@@ -248,6 +249,7 @@ internal sealed partial class TrayApp
             case "ring": _ = _link.SendAsync(_ringing ? "ring_stop" : "ring"); break;
             case "send-files": PickFiles(); break;
             case "reconnect": _link.Reconnect(); break;
+            case "switch-here": SwitchHere(); break;
             case "mirror": Mirror(null); break;
             case "open-app": if (S("pkg") is { } pkg) OpenApp(pkg, S("name") ?? pkg); break;
             case "stream-pair": StreamPair(S("hostPort") ?? "", S("code") ?? ""); break;

@@ -159,6 +159,13 @@ final class Bridge: ObservableObject {
     @Published var foundPhone: String?
     /// Why the paired phone isn't connecting, when it told us (it's using another computer, or not taking new ones).
     @Published var phoneNote: String?
+    /// The phone said it's busy with another computer (its name), until it lets us in or stops answering.
+    @Published var busyPhone: String?
+    /// The phone can switch to this Mac on request (v4+ phone app).
+    @Published var phoneCanSwitch = false
+    /// "Use it on this Mac" was pressed; waiting for the phone to switch.
+    @Published var switching = false
+    private var switchTimeout: DispatchWorkItem?
     private var phoneNoteClear: DispatchWorkItem?
     private var pairingAlert: NSAlert?
     @Published var apps: [PhoneApp] = []
@@ -435,6 +442,9 @@ final class Bridge: ObservableObject {
             connected = true
             foundPhone = nil
             phoneNote = nil
+            busyPhone = nil
+            switching = false
+            switchTimeout?.cancel()
             FxCenter.shared.fire(.connect, space: "main")
             FxCenter.shared.haptic(.levelChange)
             phoneName = name
@@ -599,14 +609,20 @@ final class Bridge: ObservableObject {
     private func refused(_ why: String, _ name: String) {
         switch why {
         case "busy":
-            phoneNote = "“\(name)” is using another computer. To use it here, open PhoneBridge on the phone → Computers and tap Connect next to this Mac."
+            busyPhone = name
+            phoneCanSwitch = link.phoneCanSwitch
+            if switching && phoneCanSwitch { return } // the switch request's own connection is on its way
+            switching = false
+            phoneNote = phoneCanSwitch
+                ? "“\(name)” is connected to your other computer. Use it here instead — the other computer lets go."
+                : "“\(name)” is using another computer. To use it here, open PhoneBridge on the phone → Computers and tap Connect next to this Mac (or update PhoneBridge on the phone to switch from here)."
         case "unpaired":
             phoneNote = "“\(name)” is paired with other computers. To add this Mac, open PhoneBridge on the phone → Computers → Pair a new computer."
         default:
             return
         }
         phoneNoteClear?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.phoneNote = nil }
+        let work = DispatchWorkItem { [weak self] in self?.phoneNote = nil; self?.busyPhone = nil }
         phoneNoteClear = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: work) // the phone stopped answering: back to the usual hint
     }
@@ -660,6 +676,21 @@ final class Bridge: ObservableObject {
 
     func forget() {
         link.forget()
+    }
+
+    /// "Use it on this Mac": asks the busy phone to switch here (it checks this Mac's pairing key first).
+    func switchHere() {
+        guard !connected else { return }
+        switching = true
+        link.requestSwitch()
+        switchTimeout?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.switching else { return }
+            self.switching = false
+            self.phoneNote = "Couldn't switch “\(self.busyPhone ?? self.phoneName)” to this Mac. Make sure PhoneBridge is open on the phone, or tap Connect next to this Mac in its Computers list."
+        }
+        switchTimeout = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15, execute: work)
     }
 
     /// Reconnect button: search for the phone again right now instead of waiting for the next retry.

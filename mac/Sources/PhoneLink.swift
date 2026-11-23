@@ -25,6 +25,12 @@ final class PhoneLink {
     /// The phone turned us away. (why, phoneName): "busy" = paired but using another computer right now,
     /// "unpaired" = it's paired with other computers and isn't accepting new ones (Pair a new computer is off).
     var onRefused: (String, String) -> Void = { _, _ in }
+    /// Whether the phone (as of its last hello) can switch to this Mac on request — "Connect here" (v4+ phone app).
+    private(set) var phoneCanSwitch = false
+    /// Until when our hellos ask the phone to switch to this Mac (see requestSwitch).
+    private var switchUntil = Date.distantPast
+    /// Asking to switch: send our "trust" only after the phone's (our "proof" must go out before anything is sealed).
+    private var trustWhenTrusted = false
 
     private let queue = DispatchQueue(label: "phonebridge.link")
     private var browser: NWBrowser?
@@ -83,6 +89,14 @@ final class PhoneLink {
             return p.count == 4 && p[0] == 100 && (64...127).contains(p[1])
         }
         queue.async { self.defaults.set(tailnet, forKey: "remoteHosts") }
+    }
+
+    /// "Connect here": the phone is busy with another computer; ask it to switch to this Mac. Our next hello says
+    /// "switch": true, the phone asks us to prove we're the paired Mac ({"t":"prove"} → {"t":"proof","key":HKDF(ikm,
+    /// salt,"switch")}, which needs our private key), then drops the other computer and trusts us.
+    func requestSwitch() {
+        queue.async { self.switchUntil = Date().addingTimeInterval(30) }
+        reconnect()
     }
 
     /// Drops the current connection and looks for the phone again right away: fresh Bonjour search, every known address.
@@ -180,10 +194,12 @@ final class PhoneLink {
             switch state {
             case .ready:
                 self.lastReceived = Date()
-                self.sendPlain(["t": "hello", "name": Host.current().localizedName ?? "Mac",
-                                "pub": Keys.publicRaw.base64EncodedString(),
-                                "epub": self.ephemeral.publicKey.rawRepresentation.base64EncodedString(),
-                                "nonce": self.myNonce.base64EncodedString(), "v": 2], on: c)
+                var hello: [String: Any] = ["t": "hello", "name": Host.current().localizedName ?? "Mac",
+                                            "pub": Keys.publicRaw.base64EncodedString(),
+                                            "epub": self.ephemeral.publicKey.rawRepresentation.base64EncodedString(),
+                                            "nonce": self.myNonce.base64EncodedString(), "v": 2]
+                if Date() < self.switchUntil { hello["switch"] = true }
+                self.sendPlain(hello, on: c)
                 self.receiveFrame(on: c)
             case .failed, .cancelled:
                 self.closed(c)
@@ -202,6 +218,7 @@ final class PhoneLink {
         ikm = Data()
         sentTrust = false
         gotTrust = false
+        trustWhenTrusted = false
         awaitingPair = false
         if askingPair { askingPair = false; pairingGone() }
         sendSealer = nil
@@ -256,9 +273,12 @@ final class PhoneLink {
             shared = s
             ikm = k
             salt = myNonce + nonce
+            phoneCanSwitch = (msg["v"] as? Int ?? 0) >= 4
             let trusted = Keys.trustedPhone
             if trusted == pub {
-                sendTrust(on: c)
+                // Asking the phone to switch: it may first ask for a proof, which must reach it before our "trust"
+                // (after that, it reads everything from us as encrypted). So answer its "trust" with ours instead.
+                if Date() < switchUntil { trustWhenTrusted = true } else { sendTrust(on: c) }
             } else if trusted != nil {
                 // Paired with a different phone: never offer to pair, just ignore it.
                 sendPlain(["t": "reject"], on: c)
@@ -278,7 +298,13 @@ final class PhoneLink {
             // After the phone's "trust", everything it sends is encrypted.
             recvSealer = Sealer(Keys.sessionKey(ikm, salt: salt, info: "p2m"))
             gotTrust = true
+            if trustWhenTrusted { trustWhenTrusted = false; sendTrust(on: c) }
             maybeReady(on: c)
+        case "prove":
+            // We asked to switch: show the phone we hold this pairing's key. Its "trust" follows.
+            guard Keys.trustedPhone == peerPub, !ikm.isEmpty else { c.cancel(); return }
+            let key = Keys.sessionKey(ikm, salt: salt, info: "switch").withUnsafeBytes { Data($0) }
+            sendPlain(["t": "proof", "key": key.base64EncodedString()], on: c)
         case "reject":
             if let why = msg["why"] as? String { onRefused(why, peerName) }
             c.cancel()
@@ -315,6 +341,7 @@ final class PhoneLink {
     private func maybeReady(on c: NWConnection) {
         guard sentTrust, gotTrust, sendSealer == nil else { return }
         sendSealer = Sealer(Keys.sessionKey(ikm, salt: salt, info: "m2p"))
+        switchUntil = .distantPast // done: don't take the phone over again on a later reconnect
         if case .hostPort(let host, _) = c.currentPath?.remoteEndpoint {
             var h = "\(host)"
             if let pct = h.firstIndex(of: "%") { h = String(h[..<pct]) } // drop IPv6 scope

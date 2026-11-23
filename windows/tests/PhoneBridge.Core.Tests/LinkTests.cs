@@ -147,6 +147,45 @@ public sealed class LinkTests : IDisposable
     }
 
     [Fact]
+    public async Task ConnectHereSwitchesABusyPhoneAfterProvingTheKey()
+    {
+        using var phone = new FakePhone { Admit = FakePhone.AdmitKind.Busy, HelloVersion = 4 };
+        var store = Store();
+        store.TrustedPhone = phone.Pub;
+        using var link = Link(store, phone);
+        var refused = new TaskCompletionSource();
+        var connected = new TaskCompletionSource();
+        link.Refused += (w, _) => { if (w == "busy") refused.TrySetResult(); };
+        link.StateChanged += (s, _) => { if (s == LinkState.Connected) connected.TrySetResult(); };
+        link.Start();
+        await Within(refused.Task.ContinueWith(_ => true)); // busy with the other computer: stays out
+        Assert.True(link.PhoneCanSwitch);
+        Assert.False(phone.Switched);
+        link.RequestSwitch(); // "Connect here"
+        await Within(connected.Task.ContinueWith(_ => true));
+        Assert.True(phone.Switched);
+        await link.SendAsync("ping");
+        await Within(WaitFor(() => phone.Decrypted.Any(m => (string?)m["t"] == "ping")));
+    }
+
+    [Fact]
+    public async Task OlderPhoneSaysItCantSwitch()
+    {
+        using var phone = new FakePhone { Admit = FakePhone.AdmitKind.Busy, HelloVersion = 3 };
+        var store = Store();
+        store.TrustedPhone = phone.Pub;
+        using var link = Link(store, phone);
+        var refused = 0;
+        link.Refused += (_, _) => Interlocked.Increment(ref refused);
+        link.Start();
+        await Within(WaitFor(() => refused >= 1));
+        Assert.False(link.PhoneCanSwitch);
+        link.RequestSwitch();
+        await Within(WaitFor(() => refused >= 2)); // still busy: an old phone ignores the request
+        Assert.False(link.IsConnected);
+    }
+
+    [Fact]
     public async Task DifferentPhoneIsIgnoredWhenPaired()
     {
         using var phone = new FakePhone { Admit = FakePhone.AdmitKind.Pair };

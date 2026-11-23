@@ -36,6 +36,8 @@ public sealed class FakePhone : IDisposable
     public string? ComputerName { get; private set; }
     public byte[]? ComputerPub { get; private set; }
     public int Connections;
+    /// <summary>A v4 phone that was busy let us in after a "Connect here" request and a correct proof.</summary>
+    public bool Switched;
 
     private Func<JsonObject, Task>? _send;
     public event Action<JsonObject>? OnMessage;
@@ -130,6 +132,11 @@ public sealed class FakePhone : IDisposable
                     });
                     break;
                 case AdmitKind.Busy:
+                    if (HelloVersion >= 4 && hello["switch"] is JsonValue sw && sw.TryGetValue<bool>(out var wants) && wants)
+                    {
+                        await WritePlain(new JsonObject { ["t"] = "prove" }); // like Link.kt's Admit.VERIFY
+                        break;
+                    }
                     await WritePlain(new JsonObject { ["t"] = "reject", ["why"] = "busy" });
                     return;
                 case AdmitKind.Stranger:
@@ -158,6 +165,16 @@ public sealed class FakePhone : IDisposable
                         break;
                     case "reject":
                         return;
+                    case "proof":
+                        var key = Convert.FromBase64String((string)o["key"]!);
+                        if (!CryptographicOperations.FixedTimeEquals(key, Keys.SessionKey(ikm, salt, "switch")))
+                        {
+                            await WritePlain(new JsonObject { ["t"] = "reject", ["why"] = "busy" });
+                            return;
+                        }
+                        Switched = true;
+                        await SendTrust();
+                        break;
                 }
             }
         }
