@@ -58,6 +58,17 @@ internal sealed class WebHost
 #endif
             foreach (var (h, f) in _maps) core.SetVirtualHostNameToFolderMapping(h, f, CoreWebView2HostResourceAccessKind.Allow);
             core.WebMessageReceived += OnMessage;
+            // Script errors in a page end up in the log (and fail the self-test).
+            core.Settings.AreDevToolsEnabled = true;
+            await core.CallDevToolsProtocolMethodAsync("Runtime.enable", "{}");
+            core.GetDevToolsProtocolEventReceiver("Runtime.exceptionThrown").DevToolsProtocolEventReceived += (_, e) =>
+            {
+                Log.Write($"{_page} script error: {e.ParameterObjectAsJson}");
+                SelfTest.Error(_page + " script", e.ParameterObjectAsJson);
+            };
+#if !DEBUG
+            core.Settings.AreDevToolsEnabled = false;
+#endif
             core.NewWindowRequested += (_, e) => e.Handled = true;
             // The page is the whole app: never navigate away (e.g. a file dropped outside a drop handler).
             core.NavigationStarting += (_, e) => { if (_ready) e.Cancel = true; };
@@ -71,6 +82,7 @@ internal sealed class WebHost
         catch (Exception e)
         {
             Log.Write($"{_page} failed to start: {e}");
+            SelfTest.Error(_page, e);
         }
     }
 
@@ -127,6 +139,7 @@ internal sealed class WebHost
         if (m?["cmd"] is not JsonValue v || !v.TryGetValue<string>(out var cmd)) return;
         if (cmd == "ready")
         {
+            if (!_ready) { Log.Write($"{_page} loaded"); SelfTest.PageLoaded(_page); }
             _ready = true;
             foreach (var p in _pending) View.CoreWebView2.PostWebMessageAsJson(p);
             _pending.Clear();

@@ -1,0 +1,55 @@
+# Builds PhoneBridge for Windows on a real Windows machine, runs the tests, starts the app in self-test mode
+# (every window opens and its page must load without errors), and keeps the exe as a download.
+name: Windows
+
+on:
+  push:
+    paths: ["windows/**", ".github/workflows/windows.yml"]
+  pull_request:
+    paths: ["windows/**", ".github/workflows/windows.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Tests
+        run: dotnet test tests/PhoneBridge.Core.Tests -c Release
+
+      - name: Build PhoneBridge.exe
+        run: dotnet publish src/PhoneBridge -c Release -r win-x64 -o out/win-x64
+
+      - name: WebView2 runtime
+        run: |
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          if (Test-Path $key) { "WebView2 $((Get-ItemProperty $key).pv) is installed" }
+          else {
+            Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile "$env:RUNNER_TEMP\wv2.exe"
+            Start-Process "$env:RUNNER_TEMP\wv2.exe" -ArgumentList '/silent','/install' -Wait
+          }
+
+      - name: Self-test (start the app, open every window)
+        run: |
+          $p = Start-Process out/win-x64/PhoneBridge.exe -ArgumentList '--selftest' -PassThru
+          if (-not $p.WaitForExit(120000)) { Stop-Process $p; "Timed out" }
+          $dir = Join-Path $env:LOCALAPPDATA 'PhoneBridge'
+          "---- selftest.txt"; Get-Content (Join-Path $dir 'selftest.txt') -ErrorAction SilentlyContinue
+          "---- phonebridge.log"; Get-Content (Join-Path $dir 'phonebridge.log') -ErrorAction SilentlyContinue
+          "exit code: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: PhoneBridge-Windows
+          path: windows/out/win-x64/PhoneBridge.exe
