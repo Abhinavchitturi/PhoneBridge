@@ -54,9 +54,12 @@ internal static class Program
     }
 
     /// <summary>Something went badly wrong: log it, say so (with where the log is), and quit cleanly.</summary>
+    private static int _crashed;
+
     private static void Crash(object error)
     {
         Log.Write("fatal: " + error);
+        if (Interlocked.Exchange(ref _crashed, 1) == 1) { Thread.Sleep(Timeout.Infinite); return; } // the first one shows the dialog
         SelfTest.Error("fatal", error);
         if (SelfTest.Active) { SelfTest.End(); Environment.Exit(2); }
         try

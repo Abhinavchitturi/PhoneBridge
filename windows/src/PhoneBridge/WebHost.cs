@@ -22,6 +22,29 @@ internal sealed class WebHost
     private bool _ready;
     private readonly List<string> _pending = [];
 
+    private readonly int _thread = Environment.CurrentManagedThreadId;
+    // WebView2's setup is asynchronous and must come back to this (UI) thread after each step: make sure there is
+    // a UI context to come back to, even if the page is created before Windows Forms installed one.
+    private readonly SynchronizationContext? _context = EnsureContext();
+
+    private static SynchronizationContext EnsureContext()
+    {
+        if (SynchronizationContext.Current is WindowsFormsSynchronizationContext c) return c;
+        var ctx = new WindowsFormsSynchronizationContext();
+        SynchronizationContext.SetSynchronizationContext(ctx);
+        return ctx;
+    }
+
+    /// <summary>Runs `a` on the thread that owns the WebView2 (it throws if used from any other thread).</summary>
+    private bool Marshal(string what, Action a)
+    {
+        if (Environment.CurrentManagedThreadId == _thread) return false;
+        Log.Write($"{_page}: {what} called off the UI thread, moved onto it:\n{Environment.StackTrace}");
+        if (View.IsHandleCreated) View.BeginInvoke(a);
+        else if (_context != null) _context.Post(_ => a(), null);
+        return true;
+    }
+
     public WebHost(string page, Action<string, JsonObject> onCommand, bool transparent = false)
     {
         _page = page;
@@ -118,6 +141,7 @@ internal sealed class WebHost
     /// <summary>Serves a local folder to the page at https://{host}/ (read-only) — used for full-size photos and videos.</summary>
     public void MapFolder(string host, string folder)
     {
+        if (Marshal(nameof(MapFolder), () => MapFolder(host, folder))) return;
         Directory.CreateDirectory(folder);
         if (View.CoreWebView2 != null) View.CoreWebView2.SetVirtualHostNameToFolderMapping(host, folder, CoreWebView2HostResourceAccessKind.Allow);
         else _maps.Add((host, folder));
@@ -159,6 +183,7 @@ internal sealed class WebHost
     /// <summary>Sends a message to the page ({type, …}); kept until the page is ready. "state" replaces any queued state.</summary>
     public void Push(string type, JsonObject body)
     {
+        if (Marshal(nameof(Push), () => Push(type, body))) return;
         body["type"] = type;
         var json = body.ToJsonString();
         if (_ready && View.CoreWebView2 != null)
