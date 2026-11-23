@@ -95,8 +95,12 @@ final class PhoneLink {
     /// "switch": true, the phone asks us to prove we're the paired Mac ({"t":"prove"} → {"t":"proof","key":HKDF(ikm,
     /// salt,"switch")}, which needs our private key), then drops the other computer and trusts us.
     func requestSwitch() {
-        queue.async { self.switchUntil = Date().addingTimeInterval(30) }
-        reconnect()
+        queue.async {
+            self.switchUntil = Date().addingTimeInterval(60)
+            // Dial now, Bonjour's answer first (it's how we just heard "busy"); no need to restart the search.
+            self.attempt = 0
+            if self.conn == nil { self.tick() }
+        }
     }
 
     /// Drops the current connection and looks for the phone again right away: fresh Bonjour search, every known address.

@@ -59,8 +59,8 @@ public sealed class PhoneLink : IDisposable
     /// <summary>"Connect here": asks the phone to drop the computer it's using and switch to this one, now.</summary>
     public void RequestSwitch()
     {
-        lock (_gate) _switchUntil = DateTime.UtcNow.AddSeconds(30);
-        Reconnect();
+        lock (_gate) _switchUntil = DateTime.UtcNow.AddSeconds(60);
+        Reconnect(); // dials the address the phone last answered on, straight away
     }
 
     private bool WantsSwitch { get { lock (_gate) return DateTime.UtcNow < _switchUntil; } }
@@ -75,6 +75,9 @@ public sealed class PhoneLink : IDisposable
     private TaskCompletionSource _wake = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Session? _conn;
     private IPEndPoint? _bonjour;
+    /// <summary>Where the phone last answered (its hello, even if it then said "busy"): dialled first, every time,
+    /// until it stops working — instead of rotating through every address we know at one try per 5 s.</summary>
+    private IPEndPoint? _reached;
     private int _attempt;
     private bool _started;
 
@@ -228,7 +231,11 @@ public sealed class PhoneLink : IDisposable
             }
             return;
         }
-        // Not connected: rotate through every way we know to reach the phone.
+        // Not connected. The phone answered at this address last time: dial it again.
+        IPEndPoint? reached;
+        lock (_gate) reached = _reached;
+        if (reached != null) { Connect(reached); return; }
+        // Otherwise rotate through every way we know to reach the phone.
         var candidates = new List<IPEndPoint>();
         lock (_gate) if (_bonjour != null) candidates.Add(_bonjour);
         if (_store.LastHost is { } host && IPAddress.TryParse(host, out var ip)) candidates.Add(new IPEndPoint(ip, _opt.Port));
@@ -281,6 +288,8 @@ public sealed class PhoneLink : IDisposable
         private byte[] _peerPub = [];
         private string _peerName = "Phone";
         private bool _sentTrust, _gotTrust;
+        /// <summary>The phone said hello on this connection.</summary>
+        private bool _heard;
         /// <summary>Newer phones (hello v3+) send "pair" once they're willing to pair; until then don't show a code.</summary>
         private bool _awaitingPair;
         /// <summary>The phone is ours: send our "trust" once the phone sends its own (see below).</summary>
@@ -330,6 +339,8 @@ public sealed class PhoneLink : IDisposable
             }
             finally
             {
+                // Couldn't reach the phone at its last address (new network, new IP): forget it and search again.
+                if (!_heard) lock (link._gate) if (Equals(link._reached, ep)) link._reached = null;
                 Close();
                 link.Closed(this);
             }
@@ -366,6 +377,9 @@ public sealed class PhoneLink : IDisposable
                     _peerPub = pub;
                     _peerName = Str(msg, "name") ?? "Phone";
                     _salt = [.. _myNonce, .. nonce];
+                    _heard = true;
+                    lock (link._gate) link._reached = ep; // the phone is here (also when it then says busy)
+                    if (ep.AddressFamily == AddressFamily.InterNetwork) link._store.LastHost = ep.Address.ToString();
                     link.PhoneCanSwitch = (msg["v"] is JsonValue hv && hv.TryGetValue<int>(out var hver) ? hver : 0) >= 4;
                     var trusted = link._store.TrustedPhone;
                     if (trusted != null && trusted.AsSpan().SequenceEqual(pub))

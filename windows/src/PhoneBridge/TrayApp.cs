@@ -345,6 +345,11 @@ internal sealed partial class TrayApp : ApplicationContext
     {
         switch (why)
         {
+            case "busy" when !_link.IsPaired:
+                // This PC forgot the phone, but the phone still remembers this PC (and is using another computer).
+                ClearBusy();
+                SetNote($"“{name}” is connected to another computer and still lists this PC. To pair again, on the phone open Computers, remove this PC, then tap Pair a new computer.");
+                break;
             case "busy":
                 _busyPhone = name;
                 if (_switching && _link.PhoneCanSwitch) return; // the switch request's own connection is on its way
@@ -387,6 +392,15 @@ internal sealed partial class TrayApp : ApplicationContext
         };
         _switchTimeout.Start();
         Refresh();
+    }
+
+    private void ClearBusy()
+    {
+        _busyPhone = null;
+        _switching = false;
+        _switchTimeout?.Dispose();
+        _switchTimeout = null;
+        SetNote(null);
     }
 
     private void SetNote(string? note)
@@ -468,6 +482,7 @@ internal sealed partial class TrayApp : ApplicationContext
         {
             _link.Forget();
             _phoneName = "your phone";
+            ClearBusy();
             Refresh();
             return;
         }
@@ -476,6 +491,7 @@ internal sealed partial class TrayApp : ApplicationContext
         if (ok != DialogResult.OK) return;
         _link.Forget();
         _phoneName = "your phone";
+        ClearBusy();
         Refresh();
     }
 
