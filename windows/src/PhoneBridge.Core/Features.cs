@@ -114,8 +114,6 @@ public sealed class NotifRules
     public List<string> Keywords { get; set; } = [];
     /// <summary>A corner pop-up with a reply box for chat messages, instead of the system notification.</summary>
     public bool ReplyPopup { get; set; } = true;
-    /// <summary>Offer three suggested replies on chat notifications (written on this computer by a local model).</summary>
-    public bool SmartReplies { get; set; } = true;
 
     public bool IsMuted(JsonObject m)
     {

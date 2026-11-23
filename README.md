@@ -23,10 +23,11 @@
 |---|---|---|
 | 💻 **Mac** | [**PhoneBridge.dmg**](https://github.com/Abhinavchitturi/PhoneBridge/releases/latest/download/PhoneBridge.dmg) | macOS 15 or later |
 | 📱 **Android phone** | [**PhoneBridge.apk**](https://github.com/Abhinavchitturi/PhoneBridge/releases/latest/download/PhoneBridge.apk) | Android 13 or later |
+| 🪟 **Windows PC** (preview) | [**PhoneBridge-Windows.exe**](https://github.com/Abhinavchitturi/PhoneBridge/releases/latest/download/PhoneBridge-Windows.exe) | Windows 10 (1903+) or Windows 11 |
 
-You need **both**: the Mac app and the phone app. Install them, then pair them once ([steps below](#-get-started-in-3-steps)). Older versions and each file's SHA-256 are on the [Releases page](https://github.com/Abhinavchitturi/PhoneBridge/releases).
+You need **both**: the computer app (Mac or Windows) and the phone app. Install them, then pair them once ([steps below](#-get-started-in-3-steps)). Older versions and each file's SHA-256 are on the [Releases page](https://github.com/Abhinavchitturi/PhoneBridge/releases).
 
-> 🪟 **Windows (preview):** a Windows app is in [`windows/`](windows), with the same design and features as the Mac app (see [`windows/README.md`](windows/README.md)). Once a release includes `PhoneBridge-Windows.exe` it's a one-file download that keeps itself up to date; until then, [build it yourself](#windows-app-preview).
+> 🪟 **Windows (preview):** the Windows app has the same design and features as the Mac app (see [`windows/README.md`](windows/README.md)). It's one file: download it, run it, and it keeps itself up to date. Windows may warn that it's from an unknown publisher (it isn't code-signed yet): choose **More info → Run anyway**.
 
 ---
 

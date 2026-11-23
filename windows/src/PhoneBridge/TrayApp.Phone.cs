@@ -57,7 +57,6 @@ internal sealed partial class TrayApp
         _rules.MutedApps = [.. _store.GetList("mutedApps", [])];
         _rules.Keywords = _store.GetList("mutedKeywords", []);
         _rules.ReplyPopup = _store.GetBool("replyPopup", true);
-        _rules.SmartReplies = _store.GetBool("smartReplies", true);
         _quickReplies = _store.GetList("quickReplies", DefaultQuickReplies);
         _sharedNote = new SharedNote(_store.GetString("noteText", "") ?? "", _store.Get("noteTs") is JsonValue tv && tv.TryGetValue<long>(out var ts) ? ts : 0);
         _batteryWatch.Alerts = _store.GetBool("batteryAlerts", true);
@@ -145,18 +144,13 @@ internal sealed partial class TrayApp
         var app = PhoneLink.Str(m, "app") ?? "";
         var sender = PhoneLink.Str(m, "title") ?? "";
         var latest = PhoneLink.Str(m, "text") ?? "";
-        var earlier = _history.Earlier(app, sender);
         if (!muted)
         {
             if (_rules.ReplyPopup && canReply && _chat != null && PhoneLink.Str(m, "id") is { } id)
             {
                 _chat.Show(m);
-                if (_rules.SmartReplies && latest.Length > 0)
-                    _ = Task.Run(async () =>
-                    {
-                        var s = await SmartReply.SuggestAsync(sender, latest, earlier);
-                        if (s.Count > 0) _ui.Post(_ => _chat.SetSuggestions(id, s), null);
-                    });
+                // Your saved quick replies, one tap away.
+                _chat.SetSuggestions(id, _quickReplies.Take(3).ToList());
             }
             else ShowNotification(m);
         }
@@ -203,7 +197,7 @@ internal sealed partial class TrayApp
                 {
                     ["mutedApps"] = new JsonArray(_rules.MutedApps.Select(a => (JsonNode)a).ToArray()),
                     ["keywords"] = new JsonArray(_rules.Keywords.Select(k => (JsonNode)k).ToArray()),
-                    ["replyPopup"] = _rules.ReplyPopup, ["smartReplies"] = _rules.SmartReplies,
+                    ["replyPopup"] = _rules.ReplyPopup,
                 },
                 ["settings"] = new JsonObject
                 {
@@ -211,7 +205,6 @@ internal sealed partial class TrayApp
                     ["presence"] = _store.GetBool("presence", false), ["presenceRange"] = _store.Get("presenceRange")?.GetValue<int>() ?? -75,
                     ["screenshots"] = _store.GetBool("screenshots", true), ["autostart"] = _autoStart.Checked,
                 },
-                ["smartReplyStatus"] = SmartReply.Status,
                 ["streaming"] = StreamStatus, ["streamingNote"] = StreamNote,
                 ["micStatus"] = _micStatus, ["micActive"] = _micActive, ["presence"] = PresenceStatus,
                 ["version"] = Version,
@@ -265,12 +258,10 @@ internal sealed partial class TrayApp
                     case "keyword": if (S("value") is { } k) _rules.AddKeyword(k); break;
                     case "unkeyword": _rules.Keywords.Remove(S("value") ?? ""); break;
                     case "replyPopup": _rules.ReplyPopup = m["value"]?.GetValue<bool>() ?? true; break;
-                    case "smartReplies": _rules.SmartReplies = m["value"]?.GetValue<bool>() ?? true; break;
                 }
                 _store.SetList("mutedApps", _rules.MutedApps);
                 _store.SetList("mutedKeywords", _rules.Keywords);
                 _store.SetBool("replyPopup", _rules.ReplyPopup);
-                _store.SetBool("smartReplies", _rules.SmartReplies);
                 PushPhoneState();
                 break;
             case "quick":

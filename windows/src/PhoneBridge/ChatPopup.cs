@@ -6,7 +6,7 @@ namespace PhoneBridge;
 
 /// <summary>
 /// The chat reply pop-up (mac/Sources/ChatPopup.swift): WhatsApp, Instagram and other chat apps pop up in the
-/// top-right with suggested replies and a box to answer straight away. Goes away by itself after 5 s unless you're
+/// top-right with your quick replies as one-tap buttons and a box to answer straight away. Goes away by itself after 5 s unless you're
 /// pointing at it, typing, or have something written; 1.4 s after you send.
 /// </summary>
 internal sealed class ChatPopup

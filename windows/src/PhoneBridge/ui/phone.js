@@ -15,7 +15,7 @@ const TITLES = {
 // App state (pushed by the app) and phone data (from the phone).
 let app = {
   connected: false, phoneName: "Phone", battery: null, charging: false, eta: null, ringing: false, dnd: false,
-  history: [], clips: [], note: "", noteTs: 0, quickReplies: [], rules: { mutedApps: [], keywords: [], replyPopup: true, smartReplies: true },
+  history: [], clips: [], note: "", noteTs: 0, quickReplies: [], rules: { mutedApps: [], keywords: [], replyPopup: true },
   settings: {}, streaming: "", micStatus: "Off", presence: "", version: "",
 };
 const P = {
@@ -480,9 +480,7 @@ function renderSettings() {
       (seen.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:2px 16px">${seen.map((a) => sw("mute:" + a, r.mutedApps.includes(a), "Mute " + esc(a))).join("")}</div>`
         : `<span class="caption">Apps appear here once they've sent you a notification.</span>`) +
       sw("replyPopup", r.replyPopup, "Show a reply box in the corner for chat messages") +
-      `<p class="note">WhatsApp, Instagram and other chat apps pop up in the top-right with a text box ready to type in. It replaces the Windows notification for those apps and goes away by itself after a few seconds unless you're using it.</p>` +
-      sw("smartReplies", r.smartReplies, "Offer 3 suggested replies on chat notifications") +
-      `<p class="note">${esc(app.smartReplyStatus || "Written on this PC by a local model. Nothing is sent anywhere.")}</p><hr>
+      `<p class="note">WhatsApp, Instagram and other chat apps pop up in the top-right with a text box ready to type in, and your first three quick replies as one-tap buttons. It replaces the Windows notification for those apps and goes away by itself after a few seconds unless you're using it.</p><hr>
       <b style="font-size:12.5px">Mute anything containing</b>
       <div class="tagrow">${r.keywords.map((k) => `<button class="tag" data-unkeyword="${esc(k)}">${esc(k)}${icon("close")}</button>`).join("")}
         <input class="field" id="keyword" placeholder="Add a word, e.g. offer, sale" style="max-width:260px"></div>`),
@@ -733,7 +731,7 @@ document.addEventListener("click", (e) => {
     t.setAttribute("aria-checked", String(on));
     if (key.startsWith("mute:")) return send("rules", { op: "mute", value: key.slice(5) });
     if (key.startsWith("ar:")) { P.autoreply[key.slice(3)] = on; return saveAutoReply(); }
-    if (key === "replyPopup" || key === "smartReplies") return send("rules", { op: key, value: on });
+    if (key === "replyPopup") return send("rules", { op: key, value: on });
     return send("set", { key, value: on });
   }
   switch (ds.cmd) {
