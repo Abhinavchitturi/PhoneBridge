@@ -151,15 +151,41 @@ final class InputControl {
 
     private func press(_ code: CGKeyCode, flags: CGEventFlags = []) { Self.press(code, flags: flags) }
 
-    /// Presses one key (with modifiers) in the Mac's front app. Needs Accessibility, like the rest of this class.
+    /// The modifier keys a shortcut presses, in the order a person would (⌃ ⌥ ⇧ ⌘).
+    private static let modifierOrder: [(code: CGKeyCode, flag: CGEventFlags)] =
+        [(59, .maskControl), (58, .maskAlternate), (56, .maskShift), (55, .maskCommand)]
+
+    private static func postFlags(_ code: CGKeyCode, down: Bool, _ state: CGEventFlags) {
+        let e = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down)
+        e?.type = .flagsChanged
+        e?.flags = state
+        e?.post(tap: .cghidEventTap)
+    }
+
+    /// Presses one key (with modifiers) in the Mac's front app, the way a real keyboard does: each modifier goes down
+    /// first and comes back up after the key. Putting the modifiers only on the key itself made macOS believe ⌃ (and
+    /// fn) were still held afterwards, so the Mac's own trackpad gestures and Mission Control stopped working until
+    /// the user pressed Control. Needs Accessibility, like the rest of this class.
     static func press(_ code: CGKeyCode, flags: CGEventFlags = []) {
-        var flags = flags.union(heldFlags)
+        let wanted = flags.union(heldFlags)
+        var keyFlags = wanted
         // Arrow and navigation keys carry the fn flag on a real keyboard; Mission Control's ⌃-arrow shortcuts expect it.
-        if (115...126).contains(code) && !flags.isEmpty { flags.insert(.maskSecondaryFn) }
+        // (Only on the key: pressing the fn/Globe key itself could open the emoji picker or switch input source.)
+        if (115...126).contains(code) && !wanted.isEmpty { keyFlags.insert(.maskSecondaryFn) }
+        // Modifiers the phone isn't already holding: down before the key, up after it.
+        let extra = modifierOrder.filter { wanted.contains($0.flag) && !heldFlags.contains($0.flag) }
+        var state = heldFlags
+        for m in extra { state.insert(m.flag); postFlags(m.code, down: true, state) }
         for down in [true, false] {
             let e = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down)
-            if !flags.isEmpty { e?.flags = flags }
+            e?.flags = keyFlags
             e?.post(tap: .cghidEventTap)
+        }
+        for m in extra.reversed() { state.remove(m.flag); postFlags(m.code, down: false, state) }
+        // Nothing to release (only modifiers the phone holds), but fn rode along on the key: restate the held ones
+        // so macOS doesn't keep fn down.
+        if extra.isEmpty && keyFlags.contains(.maskSecondaryFn), let held = modifierOrder.first(where: { heldFlags.contains($0.flag) }) {
+            postFlags(held.code, down: true, heldFlags)
         }
     }
 
