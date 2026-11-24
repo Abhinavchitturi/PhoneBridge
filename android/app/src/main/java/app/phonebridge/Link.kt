@@ -53,6 +53,9 @@ object Link {
     /** The connected computer's id, or null. */
     val connectedId: String? get() = conn?.takeIf { it.ready }?.peerId
 
+    /** "windows" or "mac" (Macs don't say; Windows sends "platform"): picks the trackpad's shortcuts. */
+    val connectedPlatform: String get() = conn?.takeIf { it.ready }?.platform ?: "mac"
+
     /** The connected computer's name as the user sees it. */
     val computerName: String
         get() = conn?.takeIf { it.ready }?.let { c -> Computers.get(app, c.peerId)?.title ?: c.macName } ?: ""
@@ -352,6 +355,9 @@ class Conn(private val sock: Socket) {
     /** The computer's name as it reports it (any computer, despite the field name). */
     var macName = "Computer"
         private set
+    /** "windows" or "mac", from its hello. */
+    var platform = "mac"
+        private set
     /** The computer's long-term public key, base64 — its id in [Computers]. */
     var peerId = ""
         private set
@@ -375,6 +381,7 @@ class Conn(private val sock: Socket) {
             require(hello.getString("t") == "hello") { "expected hello" }
             macPubB64 = hello.getString("pub")
             macName = hello.optString("name", "Computer")
+            platform = if (hello.optString("platform") == "windows") "windows" else "mac"
             val myNonce = ByteArray(16).also { SecureRandom().nextBytes(it) }
             salt = Crypto.b64d(hello.getString("nonce")) + myNonce
             val macPub = Crypto.b64d(macPubB64)

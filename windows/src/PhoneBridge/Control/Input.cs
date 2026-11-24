@@ -54,6 +54,7 @@ internal sealed class InputControl
                 if (PhoneLink.Str(m, "key") is { } name) SetModifier(name, m["down"] is JsonValue dv && dv.TryGetValue<bool>(out var down) && down);
                 break;
             case "gesture": Gesture(PhoneLink.Str(m, "dir") ?? ""); break;
+            case "action": RunAction(PhoneLink.Str(m, "id") ?? ""); break;
             case "zoom": Press(PhoneLink.Str(m, "dir") == "out" ? "-" : "=", ["ctrl"]); break;
         }
     }
@@ -129,6 +130,7 @@ internal sealed class InputControl
         if (set.Contains("ctrl")) vks.Add(VkCtrl);
         if (set.Contains("shift")) vks.Add(VkShift);
         if (set.Contains("opt") || set.Contains("alt")) vks.Add(VkAlt);
+        if (set.Contains("win")) vks.Add(VkWin); // a control made on the phone for this PC (e.g. Win+Shift+S)
         Chord([.. vks], vk);
     }
 
@@ -186,10 +188,25 @@ internal sealed class InputControl
     {
         switch (dir)
         {
-            case "left": Chord([VkAlt], 0x27); break;   // fingers left = forward (like "swipe between pages")
-            case "right": Chord([VkAlt], 0x25); break;  // back
-            case "up": Chord([VkWin], 0x09); break;     // Task View (Mission Control)
-            case "down": Chord([VkWin], (ushort)'D'); break; // show desktop
+            // Like Windows' own three-finger touchpad gestures.
+            case "left": case "right": RunAction("switch_app"); break;
+            case "up": RunAction("task_view"); break;
+            case "down": RunAction("show_desktop"); break;
+        }
+    }
+
+    /// <summary>A trackpad shortcut button (or a swipe set to one) on the phone: Windows' touchpad gestures as keys.</summary>
+    private void RunAction(string id)
+    {
+        switch (id)
+        {
+            case "switch_app": Chord([VkAlt], 0x09); break;                 // Alt+Tab: the last app
+            case "task_view": Chord([VkWin], 0x09); break;                  // Win+Tab
+            case "show_desktop": Chord([VkWin], (ushort)'D'); break;        // Win+D
+            case "prev_desktop": Chord([VkWin, VkCtrl], 0x25); break;       // Win+Ctrl+←
+            case "next_desktop": Chord([VkWin, VkCtrl], 0x27); break;       // Win+Ctrl+→
+            case "search": Chord([VkWin], (ushort)'S'); break;              // Win+S
+            case "notifications": Chord([VkWin], (ushort)'N'); break;       // Win+N
         }
     }
 

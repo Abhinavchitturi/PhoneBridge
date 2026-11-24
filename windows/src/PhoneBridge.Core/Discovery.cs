@@ -8,8 +8,10 @@ namespace PhoneBridge.Core;
 
 /// <summary>
 /// Finds the phone's "_phonebridge._tcp" service (Android NSD) with a minimal mDNS client — no Bonjour install needed.
-/// It sends a one-shot query from an ordinary UDP port, so it doesn't fight Windows' own mDNS responder for port 5353;
-/// RFC 6762 §6.7 makes responders answer such "legacy unicast" queries straight back to the sender.
+/// Its main query goes out from port 5353 itself (shared with Windows' own mDNS service, as Chrome does), joined to the
+/// mDNS group, so the phone answers to the group the normal way — Android's responder ignores the "legacy unicast"
+/// queries (from an ordinary port, RFC 6762 §6.7) this sent before, which is why Windows never found the phone by
+/// itself. A legacy query is still sent too, for responders that only answer those.
 /// The phone's address is taken from where the answer came from (it is the phone), the port from the SRV record.
 /// </summary>
 public static class Discovery
@@ -25,6 +27,21 @@ public static class Discovery
         var sockets = new List<Socket>();
         try
         {
+            // The normal mDNS way: ask from port 5353, the phone answers to the group (what Bonjour on the Mac does).
+            if (JoinGroup() is { } group)
+            {
+                sockets.Add(group);
+                foreach (var local in LocalIPv4Addresses())
+                {
+                    try
+                    {
+                        group.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastInterface, local.GetAddressBytes());
+                        group.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 255);
+                        await group.SendToAsync(query, SocketFlags.None, MdnsGroup, ct);
+                    }
+                    catch (SocketException) { }
+                }
+            }
             foreach (var local in LocalIPv4Addresses())
             {
                 try
@@ -41,8 +58,6 @@ public static class Discovery
                     // interface went away or doesn't do multicast; the others may still work
                 }
             }
-            // Some responders answer to the multicast group anyway; listen there too when the port can be shared.
-            if (JoinGroup() is { } group) sockets.Add(group);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(wait);
             await Task.WhenAll(sockets.Select(async s =>
@@ -77,7 +92,9 @@ public static class Discovery
         var s = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         try
         {
+            s.ExclusiveAddressUse = false;
             s.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            s.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastLoopback, false);
             s.Bind(new IPEndPoint(IPAddress.Any, 5353));
             var joined = false;
             foreach (var local in LocalIPv4Addresses())

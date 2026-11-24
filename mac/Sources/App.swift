@@ -608,6 +608,11 @@ final class Bridge: ObservableObject {
     /// The phone said why it won't connect. It keeps saying so on every retry, so this is a quiet line, not a notification.
     private func refused(_ why: String, _ name: String) {
         switch why {
+        case "busy" where Keys.trustedPhone == nil:
+            // This Mac forgot the phone, but the phone still remembers this Mac (and is using another computer).
+            busyPhone = nil
+            switching = false
+            phoneNote = "“\(name)” is connected to another computer and still lists this Mac. To pair again, on the phone open Computers, remove this Mac, then tap Pair a new computer."
         case "busy":
             busyPhone = name
             phoneCanSwitch = link.phoneCanSwitch
@@ -676,6 +681,10 @@ final class Bridge: ObservableObject {
 
     func forget() {
         link.forget()
+        busyPhone = nil   // the busy screen offered to switch a phone this Mac no longer trusts
+        switching = false
+        switchTimeout?.cancel()
+        phoneNote = nil
     }
 
     /// "Use it on this Mac": asks the busy phone to switch here (it checks this Mac's pairing key first).

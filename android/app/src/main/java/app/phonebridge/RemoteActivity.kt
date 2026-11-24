@@ -150,19 +150,30 @@ class RemoteActivity : Activity() {
     /** When the last quick three-finger tap ended; three fingers down again soon after = zoom by dragging. */
     private var threeTapAt = 0L
 
+    /** The trackpad's hint lines: the gestures as this computer's settings have them. */
+    private fun trackpadHint(platform: String, n: Int): List<String> {
+        val word = if (n == 4) "4 fingers" else "3 fingers"
+        fun what(d: String): String {
+            val v = Shortcuts.swipe(this, platform, d)
+            return if (v == Shortcuts.GESTURE) (if (platform == "windows") "Windows default" else if (d == "left" || d == "right") "desktops" else "Mac default")
+            else Shortcuts.swipeLabel(this, platform, v).substringAfter("  ")
+        }
+        val lr = if (what("left") == what("right")) "← → ${what("left")}" else "← ${what("left")} · → ${what("right")}"
+        return listOf(
+            "1 finger: move, tap to click  ·  2 fingers: scroll",
+            "$word: $lr · ↑ ${what("up")} · ↓ ${what("down")}",
+        )
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     private fun trackpad(): View {
         val wrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val pad = TextView(this).apply {
-            text = "One finger: move · tap to click\nTwo fingers: scroll · two-finger tap: right-click\n" +
-                "Three fingers: swipe left/right to switch apps & desktops,\nup for Mission Control, down for App Exposé\n" +
-                "Tap with three fingers, then tap-hold and drag up/down to zoom"
-            setTextColor(muted)
-            textSize = 13f
-            gravity = Gravity.CENTER
-            setLineSpacing(0f, 1.15f)
-            setPadding(dp(16), 0, dp(16), 0)
-            background = rounded(panel, 24)
+        val platform = Link.connectedPlatform
+        // Three or four fingers for swipes and zoom (some phones take a screenshot on a three-finger swipe).
+        val n = Shortcuts.fingers(this)
+        val pad = TrackpadSurface(this, panel, brand, muted).apply {
+            hint = trackpadHint(platform, n)
+            title = if (Link.isConnected) Link.computerName.uppercase() else "NOT CONNECTED"
         }
         val speed = 2.2f
         var lastX = 0f; var lastY = 0f
@@ -174,6 +185,7 @@ class RemoteActivity : Activity() {
         val swipeDistance = dp(55).toFloat()
         val zoomStep = dp(30).toFloat()
         pad.setOnTouchListener { v, e ->
+            pad.track(e)
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     lastX = e.x; lastY = e.y; downTime = SystemClock.uptimeMillis(); travelled = 0f; maxPointers = 1
@@ -182,7 +194,7 @@ class RemoteActivity : Activity() {
                 MotionEvent.ACTION_POINTER_DOWN -> {
                     maxPointers = maxOf(maxPointers, e.pointerCount)
                     resync = true
-                    if (e.pointerCount == 3) {
+                    if (e.pointerCount == n) {
                         startX = avgX(e); startY = avgY(e)
                         zooming = SystemClock.uptimeMillis() - threeTapAt < 600
                         if (zooming) v.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
@@ -196,7 +208,7 @@ class RemoteActivity : Activity() {
                     travelled += hypot(dx, dy)
                     when {
                         // Once three fingers touched, this touch is a gesture: never move or scroll as fingers lift.
-                        maxPointers >= 3 -> if (e.pointerCount >= 3) {
+                        maxPointers >= n -> if (e.pointerCount >= n) {
                             if (zooming) {
                                 zoomAcc += dy
                                 while (abs(zoomAcc) >= zoomStep) {
@@ -209,7 +221,9 @@ class RemoteActivity : Activity() {
                                 val tx = x - startX; val ty = y - startY
                                 if (maxOf(abs(tx), abs(ty)) >= swipeDistance) {
                                     val dir = if (abs(tx) > abs(ty)) (if (tx < 0) "left" else "right") else (if (ty < 0) "up" else "down")
-                                    Link.send("input", "kind" to "gesture", "fingers" to 3, "dir" to dir)
+                                    if (!Shortcuts.runSwipe(this, platform, Shortcuts.swipe(this, platform, dir)))
+                                        Link.send("input", "kind" to "gesture", "fingers" to n, "dir" to dir)
+                                    pad.pulse()
                                     v.performHapticFeedback(HapticFeedbackConstants.GESTURE_END)
                                     swiped = true
                                 }
@@ -224,7 +238,7 @@ class RemoteActivity : Activity() {
                 MotionEvent.ACTION_UP -> {
                     val quick = SystemClock.uptimeMillis() - downTime < 300 && travelled < dp(16)
                     when {
-                        maxPointers >= 3 -> threeTapAt = if (quick && !zooming) SystemClock.uptimeMillis() else 0L
+                        maxPointers >= n -> threeTapAt = if (quick && !zooming) SystemClock.uptimeMillis() else 0L
                         quick -> click(if (maxPointers >= 2) "right" else "left")
                     }
                 }
@@ -232,14 +246,441 @@ class RemoteActivity : Activity() {
             true
         }
         wrap.addView(pad, LinearLayout.LayoutParams(-1, 0, 1f))
+        wrap.addView(controlBar(platform), LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(12) })
         wrap.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(bigButton("Left click") { click("left") }, LinearLayout.LayoutParams(0, dp(64), 1f))
+            addView(clickButton("Left click", primary = true) { click("left") }, LinearLayout.LayoutParams(0, dp(60), 1f))
             addView(View(context), LinearLayout.LayoutParams(dp(10), 1))
-            addView(bigButton("Right click") { click("right") }, LinearLayout.LayoutParams(0, dp(64), 1f))
+            addView(clickButton("Right click", primary = false) { click("right") }, LinearLayout.LayoutParams(0, dp(60), 1f))
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
         return wrap
     }
+
+    // MARK: Controls — the bar under the trackpad, made by the user
+
+    private fun clickButton(title: String, primary: Boolean, onClick: () -> Unit) = label(title, 15f, text, bold = true).apply {
+        gravity = Gravity.CENTER
+        background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(mix(chip, android.graphics.Color.WHITE, if (primary) 0.06f else 0.03f), chip)).apply {
+            cornerRadius = dp(22).toFloat(); setStroke(dp(1), mix(chip, android.graphics.Color.WHITE, 0.08f))
+        }
+        isClickable = true
+        pressable()
+        setOnClickListener { performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); onClick() }
+    }
+
+    /** Shrinks a little while pressed, like a real button. */
+    private fun View.pressable() {
+        setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> v.animate().scaleX(0.96f).scaleY(0.96f).setDuration(70).start()
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> v.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+            }
+            false
+        }
+    }
+
+    private fun mix(a: Int, b: Int, t: Float): Int {
+        fun ch(s: Int) = ((a shr s and 0xFF) * (1 - t) + (b shr s and 0xFF) * t).toInt() shl s
+        return (0xFF shl 24) or ch(16) or ch(8) or ch(0)
+    }
+
+    private fun tint(c: Int, a: Int) = (c and 0x00FFFFFF) or (a shl 24)
+
+    /** One control as a pill: its icon and name. */
+    private fun controlPill(c: Shortcuts.Control, big: Boolean = false): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER
+        setPadding(dp(if (big) 20 else 14), 0, dp(if (big) 22 else 16), 0)
+        background = GradientDrawable().apply {
+            cornerRadius = dp(100).toFloat()
+            setColor(mix(chip, brand, 0.14f))
+            setStroke(dp(1), tint(brand, 70))
+        }
+        addView(label(c.icon, if (big) 20f else 16f, brand).apply { setPadding(0, 0, dp(8), 0) })
+        addView(label(c.name.ifEmpty { "Untitled" }, if (big) 16f else 13.5f, text, bold = true).apply { maxLines = 1 })
+    }
+
+    /** The bar: your controls (scrolls sideways if there are many), + to make one, ⚙ to arrange them and set swipes. */
+    private fun controlBar(platform: String): View = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        for (c in Shortcuts.controls(this@RemoteActivity, platform)) {
+            row.addView(controlPill(c).apply {
+                isClickable = true
+                pressable()
+                setOnClickListener {
+                    if (c.complete) { Shortcuts.run(c); performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY) }
+                    else editControl(platform, c.copy(), isNew = false)
+                }
+                setOnLongClickListener { performHapticFeedback(HapticFeedbackConstants.LONG_PRESS); editControl(platform, c.copy(), isNew = false); true }
+                contentDescription = "${c.name}: ${Shortcuts.describe(platform, c)}. Long-press to edit."
+            }, LinearLayout.LayoutParams(-2, -1).apply { marginEnd = dp(8) })
+        }
+        row.addView(label("+", 22f, brand, bold = true).apply {
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                cornerRadius = dp(100).toFloat(); setColor(android.graphics.Color.TRANSPARENT)
+                setStroke(dp(1), tint(brand, 110), dp(5).toFloat(), dp(4).toFloat())
+            }
+            isClickable = true
+            pressable()
+            contentDescription = "Make a control"
+            setOnClickListener { editControl(platform, Shortcuts.Control(), isNew = true) }
+        }, LinearLayout.LayoutParams(dp(52), -1))
+        addView(android.widget.HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+            isHorizontalFadingEdgeEnabled = true // fades at the ends: there's more to scroll to
+            setFadingEdgeLength(dp(28))
+            addView(row, android.widget.FrameLayout.LayoutParams(-2, -1))
+        }, LinearLayout.LayoutParams(0, -1, 1f))
+        addView(View(context), LinearLayout.LayoutParams(dp(8), 1))
+        addView(label("⚙", 18f, text).apply {
+            gravity = Gravity.CENTER
+            background = rounded(chip, 100)
+            isClickable = true
+            pressable()
+            contentDescription = "Arrange controls and set swipes"
+            setOnClickListener { customize(platform) }
+        }, LinearLayout.LayoutParams(dp(52), -1))
+    }
+
+    // MARK: Customize screen (arrange controls, swipes)
+
+    /** Where a settings list was scrolled to, so changing something doesn't jump back to the top. */
+    private var customizeScroll = 0
+
+    private fun sectionTitle(s: String) = label(s, 12.5f, muted, bold = true).apply { letterSpacing = 0.08f; setPadding(dp(6), dp(22), 0, dp(8)) }
+
+    private fun note(s: String) = label(s, 13f, muted).apply { setPadding(dp(6), 0, dp(6), dp(10)); setLineSpacing(0f, 1.2f) }
+
+    /** A card holding rows, with hairlines between them (like an iOS/One UI grouped list). */
+    private fun card(rows: List<View>) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        background = rounded(panel, 20)
+        rows.forEachIndexed { i, r ->
+            if (i > 0) addView(View(context).apply { setBackgroundColor(tint(text, 18)) }, LinearLayout.LayoutParams(-1, dp(1)).apply { marginStart = dp(18) })
+            addView(r)
+        }
+    }
+
+    private fun settingRow(title: String, value: String? = null, sub: String? = null, icon: String? = null, trailing: View? = null, onClick: (() -> Unit)? = null) =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(13), dp(14), dp(13))
+            if (onClick != null) { isClickable = true; setOnClickListener { onClick() } }
+            if (icon != null) addView(label(icon, 17f, brand).apply {
+                gravity = Gravity.CENTER
+                background = rounded(mix(panel, brand, 0.16f), 12)
+            }, LinearLayout.LayoutParams(dp(38), dp(38)).apply { marginEnd = dp(14) })
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(label(title, 15.5f, text))
+                if (sub != null) addView(label(sub, 12.5f, muted).apply { setPadding(0, dp(2), 0, 0) })
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            if (value != null) addView(label(value, 14f, muted).apply { maxLines = 1 })
+            if (trailing != null) addView(trailing)
+        }
+
+    private fun pageHeader(title: String, leftText: String?, onLeft: (() -> Unit)?, rightText: String, onRight: () -> Unit) =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(6))
+            if (leftText != null) addView(label(leftText, 15f, brand).apply {
+                setPadding(dp(4), dp(8), dp(12), dp(8)); isClickable = true; setOnClickListener { onLeft?.invoke() }
+            })
+            addView(label(title, 20f, text, bold = true), LinearLayout.LayoutParams(0, -2, 1f))
+            addView(label(rightText, 14.5f, onBrand, bold = true).apply {
+                gravity = Gravity.CENTER
+                background = rounded(brand, 100)
+                setPadding(dp(20), dp(9), dp(20), dp(9))
+                isClickable = true
+                pressable()
+                setOnClickListener { onRight() }
+            })
+        }
+
+    private fun page(header: View, content: LinearLayout) {
+        body.removeAllViews()
+        val scroller = android.widget.ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            addView(content)
+            val y = customizeScroll
+            post { scrollTo(0, y) }
+            setOnScrollChangeListener { _, _, sy, _, _ -> customizeScroll = sy }
+        }
+        body.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(header)
+            addView(scroller, LinearLayout.LayoutParams(-1, 0, 1f))
+        })
+    }
+
+    private fun customize(platform: String, keepScroll: Boolean = false) {
+        if (!keepScroll) customizeScroll = 0
+        fun redraw() = customize(platform, keepScroll = true)
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, dp(24)) }
+
+        // Your controls: tap to edit, arrows to reorder.
+        list.addView(sectionTitle("YOUR CONTROLS"))
+        list.addView(note("The buttons under the trackpad. Make your own: a key shortcut, a piece of text, or one of the ${Shortcuts.computerKind(platform)}'s actions. Long-press a button on the trackpad to edit it."))
+        val controls = Shortcuts.controls(this, platform)
+        val rows = controls.mapIndexed { i, c ->
+            val arrows = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                fun arrow(s: String, enabled: Boolean, by: Int) = label(s, 16f, if (enabled) text else tint(muted, 70)).apply {
+                    gravity = Gravity.CENTER
+                    if (enabled) { isClickable = true; setOnClickListener { Shortcuts.move(this@RemoteActivity, platform, c.id, by); redraw() } }
+                }
+                addView(arrow("↑", i > 0, -1), LinearLayout.LayoutParams(dp(34), dp(34)))
+                addView(arrow("↓", i < controls.size - 1, 1), LinearLayout.LayoutParams(dp(34), dp(34)))
+            }
+            settingRow(c.name.ifEmpty { "Untitled" }, sub = Shortcuts.describe(platform, c), icon = c.icon, trailing = arrows) {
+                editControl(platform, c.copy(), isNew = false)
+            }
+        }
+        if (rows.isNotEmpty()) list.addView(card(rows))
+        list.addView(label("+  Make a control", 15f, onBrand, bold = true).apply {
+            gravity = Gravity.CENTER
+            background = rounded(brand, 18)
+            isClickable = true
+            pressable()
+            setOnClickListener { editControl(platform, Shortcuts.Control(), isNew = true) }
+        }, LinearLayout.LayoutParams(-1, dp(50)).apply { topMargin = dp(12) })
+
+        // Swipes.
+        list.addView(sectionTitle("SWIPES"))
+        list.addView(note("If a three-finger swipe takes a screenshot on your phone, swipe with four fingers — or turn off the phone's three-finger screenshot in its Settings."))
+        val n = Shortcuts.fingers(this)
+        list.addView(segmented(listOf("3 fingers", "4 fingers"), if (n == 4) 1 else 0) { Shortcuts.setFingers(this, if (it == 1) 4 else 3); redraw() },
+            LinearLayout.LayoutParams(-1, dp(44)).apply { bottomMargin = dp(10) })
+        val arrows = mapOf("left" to "←", "right" to "→", "up" to "↑", "down" to "↓")
+        list.addView(card(Shortcuts.DIRS.map { d ->
+            settingRow("Swipe $d", value = Shortcuts.swipeLabel(this, platform, Shortcuts.swipe(this, platform, d)) + "  ›", icon = arrows.getValue(d)) {
+                pickSwipe(platform, d) { redraw() }
+            }
+        }))
+
+        list.addView(label("Reset to defaults", 15f, android.graphics.Color.rgb(255, 105, 97)).apply {
+            gravity = Gravity.CENTER
+            background = rounded(panel, 18)
+            isClickable = true
+            setOnClickListener {
+                android.app.AlertDialog.Builder(this@RemoteActivity)
+                    .setMessage("Remove your controls and swipe settings for this ${Shortcuts.computerKind(platform)}?")
+                    .setPositiveButton("Reset") { _, _ -> Shortcuts.reset(this@RemoteActivity, platform); redraw() }
+                    .setNegativeButton("Cancel", null).show()
+            }
+        }, LinearLayout.LayoutParams(-1, dp(50)).apply { topMargin = dp(26) })
+
+        page(pageHeader("Trackpad controls", null, null, "Done") { show(0) }, list)
+    }
+
+    private fun pickSwipe(platform: String, dir: String, done: () -> Unit) {
+        val options = mutableListOf(Shortcuts.GESTURE)
+        options += Shortcuts.controls(this, platform).filter { it.complete }.map { it.id }
+        options += Shortcuts.builtIns(platform).map { "action:${it.first}" }
+        options += Shortcuts.NOTHING
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Swipe $dir")
+            .setItems(options.map { Shortcuts.swipeLabel(this, platform, it) }.toTypedArray()) { _, i ->
+                Shortcuts.setSwipe(this, platform, dir, options[i]); done()
+            }
+            .show()
+    }
+
+    /** A segmented control (one choice of a few). */
+    private fun segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit) = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        background = rounded(panel, 100)
+        setPadding(dp(4), dp(4), dp(4), dp(4))
+        options.forEachIndexed { i, o ->
+            addView(label(o, 14f, if (i == selected) onBrand else text, bold = i == selected).apply {
+                gravity = Gravity.CENTER
+                if (i == selected) background = rounded(brand, 100)
+                isClickable = true
+                setOnClickListener { if (i != selected) onSelect(i) }
+            }, LinearLayout.LayoutParams(0, -1, 1f))
+        }
+    }
+
+    /** A small toggle chip. */
+    private fun toggleChip(s: String, on: Boolean, onClick: () -> Unit) = label(s, 14f, if (on) onBrand else text, bold = true).apply {
+        gravity = Gravity.CENTER
+        background = if (on) rounded(brand, 12) else GradientDrawable().apply {
+            cornerRadius = dp(12).toFloat(); setColor(chip)
+        }
+        isClickable = true
+        setOnClickListener { onClick() }
+    }
+
+    /** Puts views in rows of [perRow], each taking an equal share. */
+    private fun grid(views: List<View>, perRow: Int, height: Int) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        views.chunked(perRow).forEach { chunk ->
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                chunk.forEachIndexed { i, v ->
+                    addView(v, LinearLayout.LayoutParams(0, dp(height), 1f).apply { if (i > 0) marginStart = dp(8) })
+                }
+                repeat(perRow - chunk.size) { addView(View(context), LinearLayout.LayoutParams(0, dp(height), 1f).apply { marginStart = dp(8) }) }
+            }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+        }
+    }
+
+    private fun field(hintText: String, value: String, multiLine: Boolean = false, onChange: (String) -> Unit) = EditText(this).apply {
+        setText(value)
+        hint = hintText
+        setHintTextColor(tint(muted, 150))
+        setTextColor(this@RemoteActivity.text)
+        textSize = 16f
+        background = rounded(panel, 16)
+        setPadding(dp(16), dp(14), dp(16), dp(14))
+        if (multiLine) { minLines = 3; gravity = Gravity.TOP; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE }
+        else inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
+        addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: Editable?) { onChange(s?.toString() ?: "") }
+        })
+    }
+
+    // MARK: Control editor
+
+    private fun editControl(platform: String, c: Shortcuts.Control, isNew: Boolean, keepScroll: Boolean = false) {
+        if (!keepScroll) customizeScroll = 0
+        fun redraw() = editControl(platform, c, isNew, keepScroll = true)
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, dp(24)) }
+
+        // Preview: the button as it will look, and what it presses.
+        val preview = controlPill(c, big = true)
+        val capsRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        fun fillCaps() {
+            capsRow.removeAllViews()
+            if (c.type == Shortcuts.KEYS) {
+                val caps = Shortcuts.caps(platform, c)
+                if (caps.isEmpty()) capsRow.addView(label("Pick a key below", 13f, muted))
+                caps.forEachIndexed { i, k ->
+                    if (i > 0 && platform == "windows") capsRow.addView(label("+", 14f, muted).apply { setPadding(dp(6), 0, dp(6), 0) })
+                    capsRow.addView(label(k, 15f, text, bold = true).apply {
+                        gravity = Gravity.CENTER
+                        minWidth = dp(38)
+                        setPadding(dp(10), dp(7), dp(10), dp(7))
+                        background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                            intArrayOf(mix(chip, android.graphics.Color.WHITE, 0.1f), chip)).apply {
+                            cornerRadius = dp(9).toFloat(); setStroke(dp(1), mix(chip, android.graphics.Color.BLACK, 0.35f))
+                        }
+                    }, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(if (platform == "windows" || i == 0) 0 else 6) })
+                }
+            } else capsRow.addView(label(Shortcuts.describe(platform, c), 13f, muted))
+        }
+        fillCaps()
+        list.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(16), dp(22), dp(16), dp(20))
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(mix(panel, brand, 0.10f), panel)).apply { cornerRadius = dp(24).toFloat() }
+            addView(preview, LinearLayout.LayoutParams(-2, dp(54)))
+            addView(capsRow, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(16) })
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+
+        list.addView(sectionTitle("NAME"))
+        list.addView(field("e.g. Screenshot", c.name) { s ->
+            c.name = s
+            (preview.getChildAt(1) as TextView).text = s.ifEmpty { "Untitled" }
+        })
+
+        list.addView(sectionTitle("ICON"))
+        list.addView(grid(Shortcuts.icons.map { ic ->
+            label(ic, 18f, if (ic == c.icon) onBrand else text).apply {
+                gravity = Gravity.CENTER
+                background = rounded(if (ic == c.icon) brand else panel, 12)
+                isClickable = true
+                setOnClickListener { c.icon = ic; redraw() }
+            }
+        }, perRow = 8, height = 42))
+
+        list.addView(sectionTitle("WHAT IT DOES"))
+        val types = listOf(Shortcuts.KEYS, Shortcuts.TEXT, Shortcuts.ACTION)
+        list.addView(segmented(listOf("Shortcut", "Type text", "Built-in"), types.indexOf(c.type).coerceAtLeast(0)) { c.type = types[it]; redraw() },
+            LinearLayout.LayoutParams(-1, dp(44)).apply { bottomMargin = dp(12) })
+
+        when (c.type) {
+            Shortcuts.KEYS -> {
+                list.addView(note("Hold these…"))
+                list.addView(grid(Shortcuts.mods(platform).map { m ->
+                    toggleChip(if (platform == "windows") m.symbol else "${m.symbol}  ${m.label}", m.wire in c.mods) {
+                        c.mods = if (m.wire in c.mods) c.mods - m.wire else c.mods + m.wire
+                        redraw()
+                    }
+                }, perRow = if (platform == "windows") 4 else 2, height = 44))
+                list.addView(note("…and press"))
+                list.addView(field("Type a letter, number or symbol", if (c.key.length == 1) c.key else "") { s ->
+                    val k = s.lowercase().takeLast(1)
+                    if (Shortcuts.isTypableKey(k)) { c.key = k; fillCaps() }
+                }.apply { inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD })
+                list.addView(note("or a special key"))
+                list.addView(grid(Shortcuts.specialKeys.map { (k, cap) ->
+                    toggleChip(cap, c.key == k) { c.key = k; redraw() }.apply { textSize = 13f }
+                }, perRow = 5, height = 40))
+            }
+            Shortcuts.TEXT -> {
+                list.addView(note("Typed on the ${Shortcuts.computerKind(platform)} wherever the cursor is — an email signature, an address, a command."))
+                list.addView(field("Text to type", c.text, multiLine = true) { s -> c.text = s; fillCaps() })
+            }
+            else -> {
+                list.addView(card(Shortcuts.builtIns(platform).map { (id, name, icon) ->
+                    settingRow(name, icon = icon, value = if (c.action == id) "✓" else "") {
+                        c.action = id
+                        if (c.name.isEmpty()) c.name = name
+                        if (c.icon == "★") c.icon = icon
+                        redraw()
+                    }
+                }))
+            }
+        }
+
+        // Try it now, then save or delete.
+        list.addView(label("Try it on the ${Shortcuts.computerKind(platform)}", 15f, text, bold = true).apply {
+            gravity = Gravity.CENTER
+            background = rounded(chip, 18)
+            isClickable = true
+            pressable()
+            setOnClickListener {
+                when {
+                    !Link.isConnected -> android.widget.Toast.makeText(this@RemoteActivity, "Not connected to a computer", android.widget.Toast.LENGTH_SHORT).show()
+                    !c.complete -> android.widget.Toast.makeText(this@RemoteActivity, "Finish the control first", android.widget.Toast.LENGTH_SHORT).show()
+                    else -> { Shortcuts.run(c); performHapticFeedback(HapticFeedbackConstants.CONFIRM) }
+                }
+            }
+        }, LinearLayout.LayoutParams(-1, dp(50)).apply { topMargin = dp(22) })
+        if (!isNew) list.addView(label("Delete control", 15f, android.graphics.Color.rgb(255, 105, 97)).apply {
+            gravity = Gravity.CENTER
+            background = rounded(panel, 18)
+            isClickable = true
+            setOnClickListener { Shortcuts.remove(this@RemoteActivity, platform, c.id); show(0) }
+        }, LinearLayout.LayoutParams(-1, dp(50)).apply { topMargin = dp(10) })
+
+        page(pageHeader(if (isNew) "New control" else "Edit control", "Cancel", { show(0) }, "Save") {
+            when {
+                c.name.isBlank() -> android.widget.Toast.makeText(this, "Give it a name", android.widget.Toast.LENGTH_SHORT).show()
+                !c.complete -> android.widget.Toast.makeText(this, when (c.type) {
+                    Shortcuts.KEYS -> "Pick a key"; Shortcuts.TEXT -> "Add the text to type"; else -> "Pick an action"
+                }, android.widget.Toast.LENGTH_SHORT).show()
+                else -> {
+                    c.name = c.name.trim()
+                    Shortcuts.upsert(this, platform, c)
+                    hideKeyboard()
+                    show(0)
+                }
+            }
+        }, list)
+    }
+
+    private fun hideKeyboard() = getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(body.windowToken, 0)
 
     private fun avgX(e: MotionEvent) = (0 until e.pointerCount).map { e.getX(it) }.average().toFloat()
     private fun avgY(e: MotionEvent) = (0 until e.pointerCount).map { e.getY(it) }.average().toFloat()
@@ -249,27 +690,84 @@ class RemoteActivity : Activity() {
 
     private var ignoreEdits = false
 
+    /** A raised key cap: a lighter top over a darker base (its "side"), sinking a little while pressed. */
+    private fun keycap(fill: Int = chip, radius: Int = 10, depth: Int = 3): android.graphics.drawable.Drawable {
+        fun cap(pressed: Boolean): android.graphics.drawable.Drawable {
+            val side = GradientDrawable().apply { cornerRadius = dp(radius).toFloat(); setColor(mix(fill, android.graphics.Color.BLACK, 0.45f)) }
+            val top = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(mix(fill, android.graphics.Color.WHITE, if (pressed) 0.02f else 0.09f), if (pressed) mix(fill, android.graphics.Color.BLACK, 0.08f) else fill)).apply {
+                cornerRadius = dp(radius).toFloat(); setStroke(dp(1), tint(android.graphics.Color.WHITE, if (pressed) 8 else 18))
+            }
+            return android.graphics.drawable.LayerDrawable(arrayOf(side, top)).apply {
+                val d = dp(depth)
+                if (pressed) setLayerInset(1, 0, d - dp(1), 0, dp(1)) else setLayerInset(1, 0, 0, 0, d)
+            }
+        }
+        return android.graphics.drawable.StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_pressed), cap(true))
+            addState(intArrayOf(), cap(false))
+        }
+    }
+
+    /** A key you tap (repeats while held when [repeats]). */
+    private fun keyButton(title: String, size: Float = 16f, repeats: Boolean = false, action: () -> Unit) =
+        label(title, size, text, bold = true).apply {
+            gravity = Gravity.CENTER
+            background = keycap()
+            setPadding(0, 0, 0, dp(3))
+            isClickable = true
+            if (repeats) repeatTouch(this, action)
+            else setOnClickListener { performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); action() }
+        }
+
+    private val computerLabel get() = if (Link.isConnected) Link.computerName else Shortcuts.computerKind(Link.connectedPlatform)
+
     private fun keyboard(): View {
+        val platform = Link.connectedPlatform
         val wrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+        // Header: where the typing goes, and the full keyboard.
         wrap.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4), 0, 0, dp(8))
-            addView(label("Type here — it appears on your Mac", 14f, muted), LinearLayout.LayoutParams(0, -2, 1f))
-            addView(bigButton("Full keyboard ⟳", size = 13f) {
-                // Turn sideways for a full Mac keyboard with ⌘ ⌥ ⌃ ⇧, numbers and arrows.
-                fullKeyboardOn()
-            }.apply { setPadding(dp(14), dp(8), dp(14), dp(8)) })
+            setPadding(dp(4), 0, 0, dp(10))
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(label("TYPING ON", 11.5f, muted, bold = true).apply { letterSpacing = 0.1f })
+                addView(label(computerLabel, 19f, text, bold = true).apply { maxLines = 1 })
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(label("⌨  Full keyboard", 13.5f, onBrand, bold = true).apply {
+                gravity = Gravity.CENTER
+                background = rounded(brand, 100)
+                setPadding(dp(16), dp(10), dp(16), dp(10))
+                isClickable = true
+                pressable()
+                contentDescription = "Full keyboard: turn the phone sideways"
+                setOnClickListener { fullKeyboardOn() }
+            })
         })
+
+        // The typing card.
+        val live = label("● Live — every key goes straight to the ${Shortcuts.computerKind(platform)}", 12f, muted)
         val input = EditText(this).apply {
             setTextColor(this@RemoteActivity.text)
-            textSize = 18f
-            background = rounded(panel, 18)
-            setPadding(dp(16), dp(16), dp(16), dp(16))
+            setHintTextColor(tint(muted, 140))
+            hint = "Start typing…"
+            textSize = 19f
+            background = null
+            setPadding(dp(18), dp(18), dp(18), dp(10))
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
             gravity = Gravity.TOP
             minLines = 4
         }
+        wrap.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(mix(panel, android.graphics.Color.WHITE, 0.04f), panel)).apply {
+                cornerRadius = dp(24).toFloat(); setStroke(dp(1), tint(android.graphics.Color.WHITE, 22))
+            }
+            addView(input, LinearLayout.LayoutParams(-1, 0, 1f))
+            addView(live.apply { setPadding(dp(18), 0, dp(18), dp(14)) })
+        }, LinearLayout.LayoutParams(-1, 0, 1f))
         // Soft keyboards don't send key events reliably, so diff the text: insertions → typed text, deletions → Backspace.
         input.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -288,15 +786,43 @@ class RemoteActivity : Activity() {
                 if (s.length > 500) { ignoreEdits = true; s.clear(); ignoreEdits = false }
             }
         })
-        wrap.addView(input, LinearLayout.LayoutParams(-1, 0, 1f))
-        val keys = listOf("esc" to "Esc", "tab" to "Tab", "left" to "←", "up" to "↑", "down" to "↓", "right" to "→", "return" to "⏎")
+
+        // Everyday shortcuts (⌘ on a Mac, Ctrl on a PC — the PC turns ⌘ into Ctrl).
+        val cmd = if (platform == "windows") "Ctrl+" else "⌘"
         wrap.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            keys.forEachIndexed { i, (k, title) ->
-                if (i > 0) addView(View(context), LinearLayout.LayoutParams(dp(6), 1))
-                addView(bigButton(title, size = 15f) { key(k) }, LinearLayout.LayoutParams(0, dp(52), 1f))
+            listOf(Triple("Copy", "c", "C"), Triple("Paste", "v", "V"), Triple("Undo", "z", "Z"), Triple("Select all", "a", "A")).forEachIndexed { i, (name, k, cap) ->
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(16).toFloat(); setColor(mix(chip, brand, 0.12f)); setStroke(dp(1), tint(brand, 60))
+                    }
+                    isClickable = true
+                    pressable()
+                    setOnClickListener {
+                        performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                        Link.send("input", "kind" to "key", "key" to k, "mods" to org.json.JSONArray(listOf("cmd")))
+                    }
+                    addView(label(name, 13f, text, bold = true).apply { gravity = Gravity.CENTER; maxLines = 1 })
+                    addView(label("$cmd$cap", 11f, muted).apply { gravity = Gravity.CENTER })
+                }, LinearLayout.LayoutParams(0, dp(54), 1f).apply { if (i > 0) marginStart = dp(8) })
             }
-        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+
+        // Keys the phone keyboard doesn't have, as real key caps.
+        fun keyRow(keys: List<Triple<String, String, Boolean>>) = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            keys.forEachIndexed { i, (k, title, rep) ->
+                addView(keyButton(title, if (title.length > 2) 14f else 18f, repeats = rep) { key(k) },
+                    LinearLayout.LayoutParams(0, dp(52), 1f).apply { if (i > 0) marginStart = dp(7) })
+            }
+        }
+        wrap.addView(keyRow(listOf(Triple("esc", "Esc", false), Triple("tab", "Tab", false), Triple("backspace", "⌫", true), Triple("return", "⏎", false))),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        wrap.addView(keyRow(listOf(Triple("left", "←", true), Triple("up", "↑", true), Triple("down", "↓", true), Triple("right", "→", true))),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(7) })
+
         input.requestFocus()
         main.postDelayed({ getSystemService(InputMethodManager::class.java).showSoftInput(input, 0) }, 200)
         return wrap
@@ -324,7 +850,8 @@ class RemoteActivity : Activity() {
         releaseHeld()
         mods.clear(); modViews.clear(); charViews.clear()
         // A key: label, what it does, its width relative to a letter key, a modifier name, and whether holding repeats it.
-        class K(val label: String, val weight: Float = 1f, val mod: String? = null, val repeats: Boolean = false, val action: () -> Unit)
+        // (Every key but the modifiers and Vertical types the moment it goes down and repeats while held, like a real one.)
+        class K(val label: String, val weight: Float = 1f, val mod: String? = null, val repeats: Boolean = false, val onRelease: Boolean = false, val action: () -> Unit)
         fun ch(c: String) = K(c) { typeChar(c) }
         fun sp(label: String, name: String, w: Float) =
             K(label, w, repeats = name in setOf("backspace", "left", "right", "up", "down")) { pressSpecial(name) }
@@ -332,34 +859,45 @@ class RemoteActivity : Activity() {
         val rows = listOf(
             listOf(sp("esc", "esc", 1.3f)) + "`1234567890-=".map { ch(it.toString()) } + sp("⌫", "backspace", 1.7f),
             listOf(sp("tab", "tab", 1.6f)) + "qwertyuiop[]".map { ch(it.toString()) } + ch("\\").let { K(it.label, 1.4f, action = it.action) },
-            listOf(mod("control", "ctrl", 1.9f)) + "asdfghjkl;'".map { ch(it.toString()) } + sp("return", "return", 2.1f),
-            listOf(mod("shift", "shift", 2.4f)) + "zxcvbnm,./".map { ch(it.toString()) } + sp("↑", "up", 1f) + mod("shift", "shift", 1.6f),
+            listOf(mod("⌃ control", "ctrl", 1.9f)) + "asdfghjkl;'".map { ch(it.toString()) } + sp("return", "return", 2.1f),
+            listOf(mod("⇧ shift", "shift", 2.4f)) + "zxcvbnm,./".map { ch(it.toString()) } + sp("↑", "up", 1f) + mod("⇧ shift", "shift", 1.6f),
             listOf(
-                K("▯ Vertical", 1.5f) { vertical() },
-                mod("option", "opt", 1.4f), mod("⌘ cmd", "cmd", 1.7f), sp("space", "space", 5.6f),
-                mod("⌘ cmd", "cmd", 1.7f), mod("option", "opt", 1.4f),
+                K("↺ Vertical", 1.5f, onRelease = true) { vertical() },
+                mod("⌥ option", "opt", 1.4f), mod("⌘ cmd", "cmd", 1.7f), sp("space", "space", 5.6f),
+                mod("⌘ cmd", "cmd", 1.7f), mod("⌥ option", "opt", 1.4f),
                 sp("←", "left", 1f), sp("↓", "down", 1f), sp("→", "right", 1f),
             ),
         )
-        val wrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        // The keys sit on a base plate, like a real keyboard.
+        val wrap = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            isMotionEventSplittingEnabled = true
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(mix(bg, android.graphics.Color.WHITE, 0.05f), mix(bg, android.graphics.Color.BLACK, 0.2f))).apply {
+                cornerRadius = dp(18).toFloat(); setStroke(dp(1), tint(android.graphics.Color.WHITE, 16))
+            }
+        }
         rows.forEach { row ->
             wrap.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
+                isMotionEventSplittingEnabled = true // each finger goes to the key it's on: several keys at once
                 row.forEach { k ->
                     val v = label(k.label, if (k.label.length > 1) 12f else 17f, text, bold = k.label.length > 1).apply {
                         gravity = Gravity.CENTER
-                        background = rounded(chip, 8)
+                        background = keycap(radius = 8, depth = 3)
+                        setPadding(0, 0, 0, dp(3))
                         isClickable = true
                         maxLines = 1
                         when {
                             k.mod != null -> modifierTouch(this, k.mod)
-                            k.repeats -> repeatTouch(this, k.action)
-                            else -> setOnClickListener { performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); k.action() }
+                            k.onRelease -> setOnClickListener { performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); k.action() }
+                            // ⌫ and arrows start repeating sooner, like macOS; letters after a longer hold.
+                            else -> repeatTouch(this, k.action, delay = if (k.repeats) 400L else 500L)
                         }
                     }
                     if (k.label.length == 1 && k.label !in setOf("↑", "↓", "←", "→")) charViews += v to k.label
                     rowMods(k.label)?.let { modViews.getOrPut(it) { mutableListOf() } += v }
-                    addView(v, LinearLayout.LayoutParams(0, -1, k.weight).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) })
+                    addView(v, LinearLayout.LayoutParams(0, -1, k.weight).apply { setMargins(dp(2), dp(3), dp(2), dp(3)) })
                 }
             }, LinearLayout.LayoutParams(-1, 0, 1f))
         }
@@ -368,7 +906,7 @@ class RemoteActivity : Activity() {
     }
 
     private fun rowMods(label: String) = when (label) {
-        "control" -> "ctrl"; "shift" -> "shift"; "option" -> "opt"; "⌘ cmd" -> "cmd"; else -> null
+        "⌃ control" -> "ctrl"; "⇧ shift" -> "shift"; "⌥ option" -> "opt"; "⌘ cmd" -> "cmd"; else -> null
     }
 
     private fun toggleMod(name: String) {
@@ -406,9 +944,12 @@ class RemoteActivity : Activity() {
         }
     }
 
-    /** ⌫ and the arrows repeat while held, like a real keyboard. */
+    /**
+     * A key that types the moment a finger lands on it (so fast, overlapping fingers type in the order they pressed)
+     * and repeats while held, like a real keyboard. Each key tracks its own finger, so several can be down at once.
+     */
     @SuppressLint("ClickableViewAccessibility")
-    private fun repeatTouch(v: View, action: () -> Unit) {
+    private fun repeatTouch(v: View, action: () -> Unit, delay: Long = 450L) {
         val repeat = object : Runnable {
             override fun run() { action(); main.postDelayed(this, 60) }
         }
@@ -418,7 +959,7 @@ class RemoteActivity : Activity() {
                     v.isPressed = true
                     v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                     action()
-                    main.postDelayed(repeat, 450)
+                    main.postDelayed(repeat, delay)
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { v.isPressed = false; main.removeCallbacks(repeat) }
             }
@@ -442,7 +983,7 @@ class RemoteActivity : Activity() {
         modViews.forEach { (name, views) ->
             views.forEach { v ->
                 val on = name in mods || name in held
-                v.background = rounded(if (on) brand else chip, 8)
+                v.background = keycap(if (on) brand else chip, radius = 8, depth = 3)
                 v.setTextColor(if (on) onBrand else text)
             }
         }
@@ -477,29 +1018,143 @@ class RemoteActivity : Activity() {
         if (mods.isNotEmpty()) { mods.clear(); refreshKeys() }
     }
 
-    // MARK: Slides
+    // MARK: Slides — a presenter view
+
+    /** Which slide you're on (counted from your Next/Back presses) and the talk's clock; kept while you switch tabs. */
+    private var slideNo = 1
+    private var clockMs = 0L          // time run before the current stretch
+    private var clockSince = 0L       // when the current stretch started (0 = paused / not started)
+    private var slideLabel: TextView? = null
+    private var clockLabel: TextView? = null
+
+    private fun clockNow() = clockMs + if (clockSince > 0) SystemClock.elapsedRealtime() - clockSince else 0L
+
+    private fun refreshPresenter() {
+        slideLabel?.text = "Slide $slideNo"
+        val t = clockNow() / 1000
+        clockLabel?.text = (if (t >= 3600) "%d:%02d:%02d".format(t / 3600, t / 60 % 60, t % 60) else "%02d:%02d".format(t / 60, t % 60)) +
+            if (clockSince == 0L && t > 0) "  ⏸" else ""
+    }
+
+    private val tick = object : Runnable {
+        override fun run() {
+            if (slideLabel?.isAttachedToWindow != true) return
+            refreshPresenter()
+            main.postDelayed(this, 500)
+        }
+    }
+
+    private fun nextSlide() {
+        key("right")
+        slideNo++
+        if (clockSince == 0L && clockMs == 0L) clockSince = SystemClock.elapsedRealtime() // the talk starts with the first Next
+        refreshPresenter()
+    }
+
+    private fun previousSlide() {
+        key("left")
+        if (slideNo > 1) slideNo--
+        refreshPresenter()
+    }
+
+    /** A small stat chip (clock, slide number). */
+    private fun statChip(title: String, onClick: () -> Unit, onLong: () -> Unit) = label(title, 17f, text, bold = true).apply {
+        gravity = Gravity.CENTER
+        setPadding(dp(18), dp(10), dp(18), dp(10))
+        background = GradientDrawable().apply { cornerRadius = dp(100).toFloat(); setColor(panel); setStroke(dp(1), tint(android.graphics.Color.WHITE, 20)) }
+        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        fontFeatureSettings = "tnum"
+        isClickable = true
+        setOnClickListener { onClick() }
+        setOnLongClickListener { performHapticFeedback(HapticFeedbackConstants.LONG_PRESS); onLong(); true }
+    }
 
     private fun slides(): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        addView(label("Volume buttons also work: down = next, up = back", 13f, muted).apply {
-            gravity = Gravity.CENTER; setPadding(0, 0, 0, dp(10))
-        })
-        addView(bigButton("Next  ▶", size = 26f, filled = true) { key("right") }, LinearLayout.LayoutParams(-1, 0, 2f))
-        addView(View(context), LinearLayout.LayoutParams(1, dp(10)))
-        addView(bigButton("◀  Back", size = 20f) { key("left") }, LinearLayout.LayoutParams(-1, 0, 1f))
-        addView(View(context), LinearLayout.LayoutParams(1, dp(10)))
+
+        // Header: where the slides are, the clock and the slide number.
         addView(LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(bigButton("Black screen") { key("b") }, LinearLayout.LayoutParams(0, -1, 1f))
-            addView(View(context), LinearLayout.LayoutParams(dp(10), 1))
-            addView(bigButton("End show") { key("esc") }, LinearLayout.LayoutParams(0, -1, 1f))
-        }, LinearLayout.LayoutParams(-1, dp(64)))
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4), 0, 0, dp(12))
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(label("PRESENTING ON", 11.5f, muted, bold = true).apply { letterSpacing = 0.1f })
+                addView(label(computerLabel, 19f, text, bold = true).apply { maxLines = 1 })
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            clockLabel = statChip("00:00", onClick = {
+                // Tap: pause or carry on. Long-press: back to zero.
+                if (clockSince > 0) { clockMs = clockNow(); clockSince = 0 } else clockSince = SystemClock.elapsedRealtime()
+                refreshPresenter()
+            }, onLong = { clockMs = 0; clockSince = 0; refreshPresenter() }).apply { contentDescription = "Talk time. Tap to pause, hold to reset." }
+            addView(clockLabel)
+            slideLabel = statChip("Slide 1", onClick = {}, onLong = { slideNo = 1; refreshPresenter() }).apply {
+                contentDescription = "Slide number. Hold to start again from 1."
+            }
+            addView(slideLabel, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+        })
+
+        // Next: the big one.
+        addView(LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(mix(brand, android.graphics.Color.WHITE, 0.12f), brand, mix(brand, android.graphics.Color.BLACK, 0.25f))).apply {
+                cornerRadius = dp(32).toFloat()
+            }
+            elevation = dp(8).toFloat()
+            isClickable = true
+            pressable()
+            contentDescription = "Next slide"
+            setOnClickListener { performHapticFeedback(HapticFeedbackConstants.CONFIRM); nextSlide() }
+            addView(label("▶", 44f, onBrand).apply { gravity = Gravity.CENTER })
+            addView(label("Next", 28f, onBrand, bold = true).apply { gravity = Gravity.CENTER; setPadding(0, dp(4), 0, 0) })
+        }, LinearLayout.LayoutParams(-1, 0, 2.3f).apply { setMargins(dp(2), 0, dp(2), 0) })
+
+        // Back.
+        addView(LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(mix(panel, android.graphics.Color.WHITE, 0.05f), panel)).apply {
+                cornerRadius = dp(26).toFloat(); setStroke(dp(1), tint(android.graphics.Color.WHITE, 22))
+            }
+            isClickable = true
+            pressable()
+            contentDescription = "Previous slide"
+            setOnClickListener { performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); previousSlide() }
+            addView(label("◀", 22f, text).apply { setPadding(0, 0, dp(12), 0) })
+            addView(label("Back", 20f, text, bold = true))
+        }, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(12) })
+
+        // Screen and show controls.
+        addView(LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            listOf(Triple("■", "Black", "b"), Triple("□", "White", "w"), Triple("✕", "End show", "esc")).forEachIndexed { i, (icon, name, k) ->
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    background = rounded(panel, 20)
+                    isClickable = true
+                    pressable()
+                    setOnClickListener { performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); key(k) }
+                    addView(label(icon, 18f, if (k == "esc") android.graphics.Color.rgb(255, 105, 97) else text).apply { gravity = Gravity.CENTER })
+                    addView(label(name, 12.5f, muted, bold = true).apply { gravity = Gravity.CENTER; setPadding(0, dp(3), 0, 0) })
+                }, LinearLayout.LayoutParams(0, -1, 1f).apply { if (i > 0) marginStart = dp(10) })
+            }
+        }, LinearLayout.LayoutParams(-1, dp(72)).apply { topMargin = dp(12) })
+
+        addView(label("Volume down = next · volume up = back · works in Keynote, PowerPoint and Google Slides", 12f, muted).apply {
+            gravity = Gravity.CENTER; setPadding(dp(12), dp(12), dp(12), 0)
+        })
+
+        refreshPresenter()
+        main.removeCallbacks(tick)
+        main.postDelayed(tick, 500)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (mode == 2) when (keyCode) {
-            KeyEvent.KEYCODE_VOLUME_DOWN -> { key("right"); return true }
-            KeyEvent.KEYCODE_VOLUME_UP -> { key("left"); return true }
+            KeyEvent.KEYCODE_VOLUME_DOWN -> { nextSlide(); return true }
+            KeyEvent.KEYCODE_VOLUME_UP -> { previousSlide(); return true }
         }
         return super.onKeyDown(keyCode, event)
     }
