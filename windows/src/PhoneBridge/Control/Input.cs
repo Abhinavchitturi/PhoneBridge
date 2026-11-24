@@ -130,6 +130,7 @@ internal sealed class InputControl
         if (set.Contains("ctrl")) vks.Add(VkCtrl);
         if (set.Contains("shift")) vks.Add(VkShift);
         if (set.Contains("opt") || set.Contains("alt")) vks.Add(VkAlt);
+        if (set.Contains("win")) vks.Add(VkWin); // a control made on the phone for this PC (e.g. Win+Shift+S)
         Chord([.. vks], vk);
     }
 
