@@ -39,6 +39,11 @@ class TrackpadSurface(ctx: Context, private val base: Int, private val accent: I
 
     var hint: List<String> = emptyList()
         set(v) { field = v; invalidate() }
+    /** Corners ("tl", "tr", "bl", "br") and edges ("l", "r", "t", "b") that have a gesture: drawn as faint marks. */
+    var places: Set<String> = emptySet()
+        set(v) { field = v; invalidate() }
+    private val mark = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+
     var title: String = ""
         set(v) { field = v; invalidate() }
 
@@ -74,6 +79,14 @@ class TrackpadSurface(ctx: Context, private val base: Int, private val accent: I
 
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
         rect.set(0.5f * d, 0.5f * d, w - 0.5f * d, h - 0.5f * d)
+        // Android's Back gesture swipes in from the screen's side edges, which the trackpad nearly touches. Keep the
+        // middle of each side for the trackpad (Android allows up to 200 dp per edge): edge gestures start there.
+        val band = Gestures.sideBand(h.toFloat(), d)
+        val bandTop = ((h - band) / 2).toInt(); val bandBottom = bandTop + band.toInt()
+        systemGestureExclusionRects = listOf(
+            android.graphics.Rect(0, bandTop, (40 * d).toInt(), bandBottom),
+            android.graphics.Rect(w - (40 * d).toInt(), bandTop, w, bandBottom),
+        )
         val top = blend(base, Color.WHITE, 0.06f)
         val bottom = blend(base, Color.BLACK, 0.12f)
         fill.shader = LinearGradient(0f, 0f, 0f, h.toFloat(), top, bottom, Shader.TileMode.CLAMP)
@@ -98,6 +111,23 @@ class TrackpadSurface(ctx: Context, private val base: Int, private val accent: I
                 x += step
             }
             y += step
+        }
+
+        // Corner and edge marks: a soft arc inside a corner, a short bar along the middle of an edge.
+        if (places.isNotEmpty()) {
+            mark.strokeWidth = 3 * d
+            mark.color = withAlpha(accent, 90)
+            val r = 30 * d; val inset = 10 * d
+            for (p in places) when (p) {
+                "tl" -> c.drawArc(RectF(inset, inset, inset + 2 * r, inset + 2 * r), 180f, 90f, false, mark)
+                "tr" -> c.drawArc(RectF(width - inset - 2 * r, inset, width - inset, inset + 2 * r), 270f, 90f, false, mark)
+                "bl" -> c.drawArc(RectF(inset, height - inset - 2 * r, inset + 2 * r, height - inset), 90f, 90f, false, mark)
+                "br" -> c.drawArc(RectF(width - inset - 2 * r, height - inset - 2 * r, width - inset, height - inset), 0f, 90f, false, mark)
+                "l" -> Gestures.sideBand(height.toFloat(), d).let { b -> c.drawLine(6 * d, height / 2f - b / 2 + 12 * d, 6 * d, height / 2f + b / 2 - 12 * d, mark) }
+                "r" -> Gestures.sideBand(height.toFloat(), d).let { b -> c.drawLine(width - 6 * d, height / 2f - b / 2 + 12 * d, width - 6 * d, height / 2f + b / 2 - 12 * d, mark) }
+                "t" -> c.drawLine(width / 2f - 34 * d, 6 * d, width / 2f + 34 * d, 6 * d, mark)
+                "b" -> c.drawLine(width / 2f - 34 * d, height - 6 * d, width / 2f + 34 * d, height - 6 * d, mark)
+            }
         }
 
         // Finger glows.

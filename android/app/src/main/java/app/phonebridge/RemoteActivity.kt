@@ -187,8 +187,12 @@ class RemoteActivity : Activity() {
         val pad = TrackpadSurface(this, panel, brand, muted).apply {
             hint = trackpadHint(platform, n)
             title = if (Link.isConnected) Link.computerName.uppercase() else "NOT CONNECTED"
+            places = Shortcuts.usedPlaces(this@RemoteActivity, platform)
         }
         val speed = 2.2f
+        // A touch that starts in a corner or at an edge you've given a gesture is read as that gesture, not as moving.
+        var inPlace = false
+        val cornerSize = dp(64).toFloat(); val edgeSize = dp(26).toFloat()
         var lastX = 0f; var lastY = 0f
         var downTime = 0L; var travelled = 0f; var maxPointers = 1
         var resync = false
@@ -196,20 +200,33 @@ class RemoteActivity : Activity() {
         var twoMode = 0 // 0 undecided, 1 scroll, 2 pinch
         var lastSpread = 0f; var spreadTotal = 0f; var slideTotal = 0f; var zoomAcc = 0f
         val zoomStep = dp(38).toFloat()
-        val pairer = TapPairer({ f -> Shortcuts.controlFor(this, platform, Gestures.key(f, "double_tap")) != null }) { key ->
+        val pairer = TapPairer({ f, place -> Shortcuts.controlFor(this, platform, Gestures.key(f, "double_tap", place)) != null }) { key ->
             if (runGesture(platform, key, n, pad)) pad.performHapticFeedback(HapticFeedbackConstants.GESTURE_END)
         }
         val reader = MultiFingerReader(dp(55).toFloat(), dp(18).toFloat(),
             onSwipe = { f, dir -> if (runGesture(platform, Gestures.key(f, "swipe_$dir"), n, pad)) pad.performHapticFeedback(HapticFeedbackConstants.GESTURE_END) },
             onTap = { f -> pairer.tap(f) })
+        val placeReader = PlaceReader(dp(50).toFloat(), dp(14).toFloat(),
+            onGesture = { f, motion, place ->
+                if (runGesture(platform, Gestures.key(f, motion, place), n, pad)) pad.performHapticFeedback(HapticFeedbackConstants.GESTURE_END)
+            },
+            onTap = { f, place ->
+                val has = { m: String -> Shortcuts.controlFor(this, platform, Gestures.key(f, m, place)) != null }
+                // Nothing set for this tap here: it's an ordinary click after all.
+                if (has("tap") || has("double_tap")) pairer.tap(f, place) else click(if (f >= 2) "right" else "left")
+            })
         fun spread(e: MotionEvent) = if (e.pointerCount >= 2) hypot(e.getX(0) - e.getX(1), e.getY(0) - e.getY(1)) else 0f
         pad.setOnTouchListener { v, e ->
             pad.track(e)
             reader.feed(e)
+            if (inPlace) placeReader.feed(e)
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     lastX = e.x; lastY = e.y; downTime = SystemClock.uptimeMillis(); travelled = 0f; maxPointers = 1
                     resync = false; twoMode = 0; spreadTotal = 0f; slideTotal = 0f; zoomAcc = 0f
+                    val place = Gestures.placeAt(e.x, e.y, v.width.toFloat(), v.height.toFloat(), cornerSize, edgeSize, resources.displayMetrics.density)
+                    inPlace = place != null && place in Shortcuts.usedPlaces(this, platform)
+                    if (inPlace) placeReader.start(e, place!!)
                 }
                 MotionEvent.ACTION_POINTER_DOWN -> {
                     maxPointers = maxOf(maxPointers, e.pointerCount)
@@ -224,6 +241,8 @@ class RemoteActivity : Activity() {
                     when {
                         // Three fingers or more: a gesture (the reader handles it); never move or scroll as fingers lift.
                         maxPointers >= 3 -> {}
+                        // Started in a corner or edge with a gesture: the place reader has it.
+                        inPlace -> {}
                         e.pointerCount == 2 -> {
                             val s = spread(e)
                             val ds = s - lastSpread
@@ -254,7 +273,8 @@ class RemoteActivity : Activity() {
                 MotionEvent.ACTION_POINTER_UP -> resync = true
                 MotionEvent.ACTION_UP -> {
                     val quick = SystemClock.uptimeMillis() - downTime < 300 && travelled < dp(16)
-                    if (maxPointers < 3 && quick && twoMode != 2) click(if (maxPointers >= 2) "right" else "left")
+                    if (!inPlace && maxPointers < 3 && quick && twoMode != 2) click(if (maxPointers >= 2) "right" else "left")
+                    inPlace = false
                 }
             }
             true
@@ -678,7 +698,7 @@ class RemoteActivity : Activity() {
 
         // A gesture of your own: do it on the little trackpad to record it.
         list.addView(sectionTitle("GESTURE (OPTIONAL)"))
-        list.addView(note("Do it here with 3, 4 or 5 fingers: a tap, a double-tap or a swipe. One and two fingers are for moving, clicking, scrolling and zooming."))
+        list.addView(note("Do it here. Anywhere: 3, 4 or 5 fingers — tap, double-tap or swipe. In a corner: 1 or 2 fingers — tap, double-tap or hold. From an edge: 1 or 2 fingers swiping in. (In the middle, 1 and 2 fingers stay for moving, clicking, scrolling and zooming.)"))
         val status = label("", 14f, text, bold = true).apply { setPadding(dp(6), dp(10), dp(6), 0) }
         fun showStatus(error: String? = null) {
             when {
@@ -689,9 +709,12 @@ class RemoteActivity : Activity() {
         }
         val recorder = TrackpadSurface(this, mix(panel, brand, 0.06f), brand, muted).apply {
             title = "RECORD A GESTURE"
-            hint = listOf("Tap, double-tap or swipe with 3+ fingers")
+            hint = listOf("Corners and edges are marked")
+            places = Gestures.places.keys // show where corners and edges are
         }
-        val recPairer = TapPairer({ true }) { key ->
+        var recordedThisTouch = false
+        fun record(key: String) {
+            recordedThisTouch = true
             val owner = Shortcuts.gestureOwner(this, platform, key, exceptId = c.id)
             if (owner != null) {
                 showStatus("${Gestures.describe(key)} already exists — it's $owner. Try a new one.")
@@ -703,16 +726,30 @@ class RemoteActivity : Activity() {
                 recorder.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
             }
         }
+        val recPairer = TapPairer({ _, _ -> true }) { key -> record(key) }
         val recReader = MultiFingerReader(dp(45).toFloat(), dp(18).toFloat(),
-            onSwipe = { f, dir -> recordSwipe(platform, c, Gestures.key(f, "swipe_$dir"), recorder, ::showStatus) },
-            onTap = { f -> recPairer.tap(f) })
+            onSwipe = { f, dir -> record(Gestures.key(f, "swipe_$dir")) },
+            onTap = { f -> recordedThisTouch = true; recPairer.tap(f) })
+        val recPlaces = PlaceReader(dp(40).toFloat(), dp(14).toFloat(),
+            onGesture = { f, motion, place -> if (f <= 2) record(Gestures.key(f, motion, place)) },
+            onTap = { f, place -> if (f <= 2) { recordedThisTouch = true; recPairer.tap(f, place) } })
+        var recPlace: String? = null
         recorder.setOnTouchListener { v, e ->
             // Keep the page from scrolling while recording.
-            if (e.actionMasked == MotionEvent.ACTION_DOWN) v.parent.requestDisallowInterceptTouchEvent(true)
+            if (e.actionMasked == MotionEvent.ACTION_DOWN) {
+                v.parent.requestDisallowInterceptTouchEvent(true)
+                recordedThisTouch = false
+                recPlace = Gestures.placeAt(e.x, e.y, v.width.toFloat(), v.height.toFloat(), dp(48).toFloat(), dp(22).toFloat(), resources.displayMetrics.density)
+                recPlace?.let { recPlaces.start(e, it) }
+            }
             recorder.track(e)
             recReader.feed(e)
-            if (e.actionMasked == MotionEvent.ACTION_UP && recReader.fingers in 1..2)
-                showStatus("Use 3, 4 or 5 fingers — one and two are the trackpad's own.")
+            if (recPlace != null) recPlaces.feed(e)
+            if (e.actionMasked == MotionEvent.ACTION_UP && !recordedThisTouch && recReader.fingers in 1..2) showStatus(when {
+                recPlace == null -> "In the middle, use 3, 4 or 5 fingers. With 1 or 2, start in a corner or at an edge."
+                Gestures.isCorner(recPlace!!) -> "In a corner: tap, double-tap, or hold for half a second."
+                else -> "From an edge: start at the edge and swipe inwards."
+            })
             true
         }
         list.addView(recorder, LinearLayout.LayoutParams(-1, dp(190)))
@@ -768,19 +805,6 @@ class RemoteActivity : Activity() {
                 }
             }
         }, list)
-    }
-
-    private fun recordSwipe(platform: String, c: Shortcuts.Control, key: String, recorder: TrackpadSurface, showStatus: (String?) -> Unit) {
-        val owner = Shortcuts.gestureOwner(this, platform, key, exceptId = c.id)
-        if (owner != null) {
-            showStatus("${Gestures.describe(key)} already exists — it's $owner. Try a new one.")
-            recorder.performHapticFeedback(HapticFeedbackConstants.REJECT)
-        } else {
-            c.gesture = key
-            showStatus(null)
-            recorder.pulse()
-            recorder.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-        }
     }
 
     private fun hideKeyboard() = getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(body.windowToken, 0)

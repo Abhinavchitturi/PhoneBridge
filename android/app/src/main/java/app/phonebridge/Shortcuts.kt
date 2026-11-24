@@ -171,6 +171,10 @@ object Shortcuts {
     fun controlFor(ctx: Context, platform: String, key: String) =
         controls(ctx, platform).firstOrNull { it.gesture == key && it.complete }
 
+    /** Corners and edges that have a gesture of yours (the trackpad reads touches starting there as gestures). */
+    fun usedPlaces(ctx: Context, platform: String): Set<String> =
+        controls(ctx, platform).filter { it.complete }.mapNotNull { Gestures.placeOf(it.gesture) }.toSet()
+
     /**
      * Who already uses this gesture (a control, or one of the built-in swipes), as the user would call it, or null
      * if it's free. [exceptId] is the control being edited.
