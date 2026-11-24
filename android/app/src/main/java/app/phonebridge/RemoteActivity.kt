@@ -690,27 +690,84 @@ class RemoteActivity : Activity() {
 
     private var ignoreEdits = false
 
+    /** A raised key cap: a lighter top over a darker base (its "side"), sinking a little while pressed. */
+    private fun keycap(fill: Int = chip, radius: Int = 10, depth: Int = 3): android.graphics.drawable.Drawable {
+        fun cap(pressed: Boolean): android.graphics.drawable.Drawable {
+            val side = GradientDrawable().apply { cornerRadius = dp(radius).toFloat(); setColor(mix(fill, android.graphics.Color.BLACK, 0.45f)) }
+            val top = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(mix(fill, android.graphics.Color.WHITE, if (pressed) 0.02f else 0.09f), if (pressed) mix(fill, android.graphics.Color.BLACK, 0.08f) else fill)).apply {
+                cornerRadius = dp(radius).toFloat(); setStroke(dp(1), tint(android.graphics.Color.WHITE, if (pressed) 8 else 18))
+            }
+            return android.graphics.drawable.LayerDrawable(arrayOf(side, top)).apply {
+                val d = dp(depth)
+                if (pressed) setLayerInset(1, 0, d - dp(1), 0, dp(1)) else setLayerInset(1, 0, 0, 0, d)
+            }
+        }
+        return android.graphics.drawable.StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_pressed), cap(true))
+            addState(intArrayOf(), cap(false))
+        }
+    }
+
+    /** A key you tap (repeats while held when [repeats]). */
+    private fun keyButton(title: String, size: Float = 16f, repeats: Boolean = false, action: () -> Unit) =
+        label(title, size, text, bold = true).apply {
+            gravity = Gravity.CENTER
+            background = keycap()
+            setPadding(0, 0, 0, dp(3))
+            isClickable = true
+            if (repeats) repeatTouch(this, action)
+            else setOnClickListener { performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); action() }
+        }
+
+    private val computerLabel get() = if (Link.isConnected) Link.computerName else Shortcuts.computerKind(Link.connectedPlatform)
+
     private fun keyboard(): View {
+        val platform = Link.connectedPlatform
         val wrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+        // Header: where the typing goes, and the full keyboard.
         wrap.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4), 0, 0, dp(8))
-            addView(label("Type here — it appears on your Mac", 14f, muted), LinearLayout.LayoutParams(0, -2, 1f))
-            addView(bigButton("Full keyboard ⟳", size = 13f) {
-                // Turn sideways for a full Mac keyboard with ⌘ ⌥ ⌃ ⇧, numbers and arrows.
-                fullKeyboardOn()
-            }.apply { setPadding(dp(14), dp(8), dp(14), dp(8)) })
+            setPadding(dp(4), 0, 0, dp(10))
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(label("TYPING ON", 11.5f, muted, bold = true).apply { letterSpacing = 0.1f })
+                addView(label(computerLabel, 19f, text, bold = true).apply { maxLines = 1 })
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(label("⌨  Full keyboard", 13.5f, onBrand, bold = true).apply {
+                gravity = Gravity.CENTER
+                background = rounded(brand, 100)
+                setPadding(dp(16), dp(10), dp(16), dp(10))
+                isClickable = true
+                pressable()
+                contentDescription = "Full keyboard: turn the phone sideways"
+                setOnClickListener { fullKeyboardOn() }
+            })
         })
+
+        // The typing card.
+        val live = label("● Live — every key goes straight to the ${Shortcuts.computerKind(platform)}", 12f, muted)
         val input = EditText(this).apply {
             setTextColor(this@RemoteActivity.text)
-            textSize = 18f
-            background = rounded(panel, 18)
-            setPadding(dp(16), dp(16), dp(16), dp(16))
+            setHintTextColor(tint(muted, 140))
+            hint = "Start typing…"
+            textSize = 19f
+            background = null
+            setPadding(dp(18), dp(18), dp(18), dp(10))
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
             gravity = Gravity.TOP
             minLines = 4
         }
+        wrap.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(mix(panel, android.graphics.Color.WHITE, 0.04f), panel)).apply {
+                cornerRadius = dp(24).toFloat(); setStroke(dp(1), tint(android.graphics.Color.WHITE, 22))
+            }
+            addView(input, LinearLayout.LayoutParams(-1, 0, 1f))
+            addView(live.apply { setPadding(dp(18), 0, dp(18), dp(14)) })
+        }, LinearLayout.LayoutParams(-1, 0, 1f))
         // Soft keyboards don't send key events reliably, so diff the text: insertions → typed text, deletions → Backspace.
         input.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -729,15 +786,43 @@ class RemoteActivity : Activity() {
                 if (s.length > 500) { ignoreEdits = true; s.clear(); ignoreEdits = false }
             }
         })
-        wrap.addView(input, LinearLayout.LayoutParams(-1, 0, 1f))
-        val keys = listOf("esc" to "Esc", "tab" to "Tab", "left" to "←", "up" to "↑", "down" to "↓", "right" to "→", "return" to "⏎")
+
+        // Everyday shortcuts (⌘ on a Mac, Ctrl on a PC — the PC turns ⌘ into Ctrl).
+        val cmd = if (platform == "windows") "Ctrl+" else "⌘"
         wrap.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            keys.forEachIndexed { i, (k, title) ->
-                if (i > 0) addView(View(context), LinearLayout.LayoutParams(dp(6), 1))
-                addView(bigButton(title, size = 15f) { key(k) }, LinearLayout.LayoutParams(0, dp(52), 1f))
+            listOf(Triple("Copy", "c", "C"), Triple("Paste", "v", "V"), Triple("Undo", "z", "Z"), Triple("Select all", "a", "A")).forEachIndexed { i, (name, k, cap) ->
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(16).toFloat(); setColor(mix(chip, brand, 0.12f)); setStroke(dp(1), tint(brand, 60))
+                    }
+                    isClickable = true
+                    pressable()
+                    setOnClickListener {
+                        performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                        Link.send("input", "kind" to "key", "key" to k, "mods" to org.json.JSONArray(listOf("cmd")))
+                    }
+                    addView(label(name, 13f, text, bold = true).apply { gravity = Gravity.CENTER; maxLines = 1 })
+                    addView(label("$cmd$cap", 11f, muted).apply { gravity = Gravity.CENTER })
+                }, LinearLayout.LayoutParams(0, dp(54), 1f).apply { if (i > 0) marginStart = dp(8) })
             }
-        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+
+        // Keys the phone keyboard doesn't have, as real key caps.
+        fun keyRow(keys: List<Triple<String, String, Boolean>>) = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            keys.forEachIndexed { i, (k, title, rep) ->
+                addView(keyButton(title, if (title.length > 2) 14f else 18f, repeats = rep) { key(k) },
+                    LinearLayout.LayoutParams(0, dp(52), 1f).apply { if (i > 0) marginStart = dp(7) })
+            }
+        }
+        wrap.addView(keyRow(listOf(Triple("esc", "Esc", false), Triple("tab", "Tab", false), Triple("backspace", "⌫", true), Triple("return", "⏎", false))),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        wrap.addView(keyRow(listOf(Triple("left", "←", true), Triple("up", "↑", true), Triple("down", "↓", true), Triple("right", "→", true))),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(7) })
+
         input.requestFocus()
         main.postDelayed({ getSystemService(InputMethodManager::class.java).showSoftInput(input, 0) }, 200)
         return wrap
@@ -773,23 +858,31 @@ class RemoteActivity : Activity() {
         val rows = listOf(
             listOf(sp("esc", "esc", 1.3f)) + "`1234567890-=".map { ch(it.toString()) } + sp("⌫", "backspace", 1.7f),
             listOf(sp("tab", "tab", 1.6f)) + "qwertyuiop[]".map { ch(it.toString()) } + ch("\\").let { K(it.label, 1.4f, action = it.action) },
-            listOf(mod("control", "ctrl", 1.9f)) + "asdfghjkl;'".map { ch(it.toString()) } + sp("return", "return", 2.1f),
-            listOf(mod("shift", "shift", 2.4f)) + "zxcvbnm,./".map { ch(it.toString()) } + sp("↑", "up", 1f) + mod("shift", "shift", 1.6f),
+            listOf(mod("⌃ control", "ctrl", 1.9f)) + "asdfghjkl;'".map { ch(it.toString()) } + sp("return", "return", 2.1f),
+            listOf(mod("⇧ shift", "shift", 2.4f)) + "zxcvbnm,./".map { ch(it.toString()) } + sp("↑", "up", 1f) + mod("⇧ shift", "shift", 1.6f),
             listOf(
-                K("▯ Vertical", 1.5f) { vertical() },
-                mod("option", "opt", 1.4f), mod("⌘ cmd", "cmd", 1.7f), sp("space", "space", 5.6f),
-                mod("⌘ cmd", "cmd", 1.7f), mod("option", "opt", 1.4f),
+                K("↺ Vertical", 1.5f) { vertical() },
+                mod("⌥ option", "opt", 1.4f), mod("⌘ cmd", "cmd", 1.7f), sp("space", "space", 5.6f),
+                mod("⌘ cmd", "cmd", 1.7f), mod("⌥ option", "opt", 1.4f),
                 sp("←", "left", 1f), sp("↓", "down", 1f), sp("→", "right", 1f),
             ),
         )
-        val wrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        // The keys sit on a base plate, like a real keyboard.
+        val wrap = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(mix(bg, android.graphics.Color.WHITE, 0.05f), mix(bg, android.graphics.Color.BLACK, 0.2f))).apply {
+                cornerRadius = dp(18).toFloat(); setStroke(dp(1), tint(android.graphics.Color.WHITE, 16))
+            }
+        }
         rows.forEach { row ->
             wrap.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 row.forEach { k ->
                     val v = label(k.label, if (k.label.length > 1) 12f else 17f, text, bold = k.label.length > 1).apply {
                         gravity = Gravity.CENTER
-                        background = rounded(chip, 8)
+                        background = keycap(radius = 8, depth = 3)
+                        setPadding(0, 0, 0, dp(3))
                         isClickable = true
                         maxLines = 1
                         when {
@@ -800,7 +893,7 @@ class RemoteActivity : Activity() {
                     }
                     if (k.label.length == 1 && k.label !in setOf("↑", "↓", "←", "→")) charViews += v to k.label
                     rowMods(k.label)?.let { modViews.getOrPut(it) { mutableListOf() } += v }
-                    addView(v, LinearLayout.LayoutParams(0, -1, k.weight).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) })
+                    addView(v, LinearLayout.LayoutParams(0, -1, k.weight).apply { setMargins(dp(2), dp(3), dp(2), dp(3)) })
                 }
             }, LinearLayout.LayoutParams(-1, 0, 1f))
         }
@@ -809,7 +902,7 @@ class RemoteActivity : Activity() {
     }
 
     private fun rowMods(label: String) = when (label) {
-        "control" -> "ctrl"; "shift" -> "shift"; "option" -> "opt"; "⌘ cmd" -> "cmd"; else -> null
+        "⌃ control" -> "ctrl"; "⇧ shift" -> "shift"; "⌥ option" -> "opt"; "⌘ cmd" -> "cmd"; else -> null
     }
 
     private fun toggleMod(name: String) {
@@ -883,7 +976,7 @@ class RemoteActivity : Activity() {
         modViews.forEach { (name, views) ->
             views.forEach { v ->
                 val on = name in mods || name in held
-                v.background = rounded(if (on) brand else chip, 8)
+                v.background = keycap(if (on) brand else chip, radius = 8, depth = 3)
                 v.setTextColor(if (on) onBrand else text)
             }
         }
@@ -918,29 +1011,143 @@ class RemoteActivity : Activity() {
         if (mods.isNotEmpty()) { mods.clear(); refreshKeys() }
     }
 
-    // MARK: Slides
+    // MARK: Slides — a presenter view
+
+    /** Which slide you're on (counted from your Next/Back presses) and the talk's clock; kept while you switch tabs. */
+    private var slideNo = 1
+    private var clockMs = 0L          // time run before the current stretch
+    private var clockSince = 0L       // when the current stretch started (0 = paused / not started)
+    private var slideLabel: TextView? = null
+    private var clockLabel: TextView? = null
+
+    private fun clockNow() = clockMs + if (clockSince > 0) SystemClock.elapsedRealtime() - clockSince else 0L
+
+    private fun refreshPresenter() {
+        slideLabel?.text = "Slide $slideNo"
+        val t = clockNow() / 1000
+        clockLabel?.text = (if (t >= 3600) "%d:%02d:%02d".format(t / 3600, t / 60 % 60, t % 60) else "%02d:%02d".format(t / 60, t % 60)) +
+            if (clockSince == 0L && t > 0) "  ⏸" else ""
+    }
+
+    private val tick = object : Runnable {
+        override fun run() {
+            if (slideLabel?.isAttachedToWindow != true) return
+            refreshPresenter()
+            main.postDelayed(this, 500)
+        }
+    }
+
+    private fun nextSlide() {
+        key("right")
+        slideNo++
+        if (clockSince == 0L && clockMs == 0L) clockSince = SystemClock.elapsedRealtime() // the talk starts with the first Next
+        refreshPresenter()
+    }
+
+    private fun previousSlide() {
+        key("left")
+        if (slideNo > 1) slideNo--
+        refreshPresenter()
+    }
+
+    /** A small stat chip (clock, slide number). */
+    private fun statChip(title: String, onClick: () -> Unit, onLong: () -> Unit) = label(title, 17f, text, bold = true).apply {
+        gravity = Gravity.CENTER
+        setPadding(dp(18), dp(10), dp(18), dp(10))
+        background = GradientDrawable().apply { cornerRadius = dp(100).toFloat(); setColor(panel); setStroke(dp(1), tint(android.graphics.Color.WHITE, 20)) }
+        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        fontFeatureSettings = "tnum"
+        isClickable = true
+        setOnClickListener { onClick() }
+        setOnLongClickListener { performHapticFeedback(HapticFeedbackConstants.LONG_PRESS); onLong(); true }
+    }
 
     private fun slides(): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        addView(label("Volume buttons also work: down = next, up = back", 13f, muted).apply {
-            gravity = Gravity.CENTER; setPadding(0, 0, 0, dp(10))
-        })
-        addView(bigButton("Next  ▶", size = 26f, filled = true) { key("right") }, LinearLayout.LayoutParams(-1, 0, 2f))
-        addView(View(context), LinearLayout.LayoutParams(1, dp(10)))
-        addView(bigButton("◀  Back", size = 20f) { key("left") }, LinearLayout.LayoutParams(-1, 0, 1f))
-        addView(View(context), LinearLayout.LayoutParams(1, dp(10)))
+
+        // Header: where the slides are, the clock and the slide number.
         addView(LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(bigButton("Black screen") { key("b") }, LinearLayout.LayoutParams(0, -1, 1f))
-            addView(View(context), LinearLayout.LayoutParams(dp(10), 1))
-            addView(bigButton("End show") { key("esc") }, LinearLayout.LayoutParams(0, -1, 1f))
-        }, LinearLayout.LayoutParams(-1, dp(64)))
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4), 0, 0, dp(12))
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(label("PRESENTING ON", 11.5f, muted, bold = true).apply { letterSpacing = 0.1f })
+                addView(label(computerLabel, 19f, text, bold = true).apply { maxLines = 1 })
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+            clockLabel = statChip("00:00", onClick = {
+                // Tap: pause or carry on. Long-press: back to zero.
+                if (clockSince > 0) { clockMs = clockNow(); clockSince = 0 } else clockSince = SystemClock.elapsedRealtime()
+                refreshPresenter()
+            }, onLong = { clockMs = 0; clockSince = 0; refreshPresenter() }).apply { contentDescription = "Talk time. Tap to pause, hold to reset." }
+            addView(clockLabel)
+            slideLabel = statChip("Slide 1", onClick = {}, onLong = { slideNo = 1; refreshPresenter() }).apply {
+                contentDescription = "Slide number. Hold to start again from 1."
+            }
+            addView(slideLabel, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
+        })
+
+        // Next: the big one.
+        addView(LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(mix(brand, android.graphics.Color.WHITE, 0.12f), brand, mix(brand, android.graphics.Color.BLACK, 0.25f))).apply {
+                cornerRadius = dp(32).toFloat()
+            }
+            elevation = dp(8).toFloat()
+            isClickable = true
+            pressable()
+            contentDescription = "Next slide"
+            setOnClickListener { performHapticFeedback(HapticFeedbackConstants.CONFIRM); nextSlide() }
+            addView(label("▶", 44f, onBrand).apply { gravity = Gravity.CENTER })
+            addView(label("Next", 28f, onBrand, bold = true).apply { gravity = Gravity.CENTER; setPadding(0, dp(4), 0, 0) })
+        }, LinearLayout.LayoutParams(-1, 0, 2.3f).apply { setMargins(dp(2), 0, dp(2), 0) })
+
+        // Back.
+        addView(LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(mix(panel, android.graphics.Color.WHITE, 0.05f), panel)).apply {
+                cornerRadius = dp(26).toFloat(); setStroke(dp(1), tint(android.graphics.Color.WHITE, 22))
+            }
+            isClickable = true
+            pressable()
+            contentDescription = "Previous slide"
+            setOnClickListener { performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); previousSlide() }
+            addView(label("◀", 22f, text).apply { setPadding(0, 0, dp(12), 0) })
+            addView(label("Back", 20f, text, bold = true))
+        }, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(12) })
+
+        // Screen and show controls.
+        addView(LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            listOf(Triple("■", "Black", "b"), Triple("□", "White", "w"), Triple("✕", "End show", "esc")).forEachIndexed { i, (icon, name, k) ->
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    background = rounded(panel, 20)
+                    isClickable = true
+                    pressable()
+                    setOnClickListener { performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); key(k) }
+                    addView(label(icon, 18f, if (k == "esc") android.graphics.Color.rgb(255, 105, 97) else text).apply { gravity = Gravity.CENTER })
+                    addView(label(name, 12.5f, muted, bold = true).apply { gravity = Gravity.CENTER; setPadding(0, dp(3), 0, 0) })
+                }, LinearLayout.LayoutParams(0, -1, 1f).apply { if (i > 0) marginStart = dp(10) })
+            }
+        }, LinearLayout.LayoutParams(-1, dp(72)).apply { topMargin = dp(12) })
+
+        addView(label("Volume down = next · volume up = back · works in Keynote, PowerPoint and Google Slides", 12f, muted).apply {
+            gravity = Gravity.CENTER; setPadding(dp(12), dp(12), dp(12), 0)
+        })
+
+        refreshPresenter()
+        main.removeCallbacks(tick)
+        main.postDelayed(tick, 500)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (mode == 2) when (keyCode) {
-            KeyEvent.KEYCODE_VOLUME_DOWN -> { key("right"); return true }
-            KeyEvent.KEYCODE_VOLUME_UP -> { key("left"); return true }
+            KeyEvent.KEYCODE_VOLUME_DOWN -> { nextSlide(); return true }
+            KeyEvent.KEYCODE_VOLUME_UP -> { previousSlide(); return true }
         }
         return super.onKeyDown(keyCode, event)
     }
