@@ -182,7 +182,7 @@ class RemoteActivity : Activity() {
     private fun trackpad(): View {
         val wrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val platform = Link.connectedPlatform
-        // Three or four fingers for the built-in swipes (some phones take a screenshot on a three-finger swipe).
+        // The built-in swipes are three fingers, like a Mac trackpad.
         val n = Shortcuts.fingers(this)
         val pad = TrackpadSurface(this, panel, brand, muted).apply {
             hint = trackpadHint(platform, n)
@@ -524,10 +524,7 @@ class RemoteActivity : Activity() {
 
         // Swipes.
         list.addView(sectionTitle("SWIPES"))
-        list.addView(note("If a three-finger swipe takes a screenshot on your phone, swipe with four fingers — or turn off the phone's three-finger screenshot in its Settings."))
-        val n = Shortcuts.fingers(this)
-        list.addView(segmented(listOf("3 fingers", "4 fingers"), if (n == 4) 1 else 0) { Shortcuts.setFingers(this, if (it == 1) 4 else 3); redraw() },
-            LinearLayout.LayoutParams(-1, dp(44)).apply { bottomMargin = dp(10) })
+        list.addView(note("Three fingers, like a Mac trackpad. (If a three-finger swipe takes a screenshot on your phone, turn that off in the phone's Settings.)"))
         val arrows = mapOf("left" to "←", "right" to "→", "up" to "↑", "down" to "↓")
         list.addView(card(Shortcuts.DIRS.map { d ->
             settingRow("Swipe $d", value = Shortcuts.swipeLabel(this, platform, Shortcuts.swipe(this, platform, d)) + "  ›", icon = arrows.getValue(d)) {

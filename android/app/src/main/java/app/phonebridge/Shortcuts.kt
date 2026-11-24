@@ -215,9 +215,10 @@ object Shortcuts {
         else -> controls(ctx, platform).firstOrNull { it.id == value }?.let { "${it.icon}  ${it.name.ifEmpty { "Untitled" }}" } ?: "Nothing"
     }
 
-    /** 3 or 4. Some phones take a screenshot on a three-finger swipe, so the trackpad never sees it: use four. */
-    fun fingers(ctx: Context) = prefs(ctx).getInt("fingers", 3)
-    fun setFingers(ctx: Context, n: Int) = prefs(ctx).edit().putInt("fingers", n).apply()
+    /** The swipes (desktops, Mission Control, App Exposé) are three fingers, like a Mac trackpad. (An earlier "four
+     * fingers" choice is gone; a saved 4 is ignored.) */
+    @Suppress("UNUSED_PARAMETER")
+    fun fingers(ctx: Context) = 3
 
     fun reset(ctx: Context, platform: String) {
         val k = kind(platform)
