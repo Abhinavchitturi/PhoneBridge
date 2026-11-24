@@ -39,6 +39,84 @@ class TrackpadSurface(ctx: Context, private val base: Int, private val accent: I
 
     var hint: List<String> = emptyList()
         set(v) { field = v; invalidate() }
+    /** Corners ("tl", "tr", "bl", "br") and edges ("l", "r", "t", "b") that have a gesture: drawn as faint marks. */
+    var places: Set<String> = emptySet()
+        set(v) { field = v; invalidate() }
+    private val mark = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+
+    /**
+     * Recording guide: the corners, edges and middle drawn as labelled areas, at the sizes the trackpad reads places
+     * with, and [activePlace] (or the middle, with [activeMiddle]) lit up.
+     */
+    var guide = false
+        set(v) { field = v; invalidate() }
+    var activePlace: String? = null
+        set(v) { field = v; invalidate() }
+    var activeMiddle = false
+        set(v) { field = v; invalidate() }
+    private val zoneFill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val zoneEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = 1.2f * d; pathEffect = android.graphics.DashPathEffect(floatArrayOf(5 * d, 4 * d), 0f)
+    }
+    private val zoneText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 11.5f * d; isFakeBoldText = true }
+    private val middleText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 15f * d; isFakeBoldText = true }
+
+    private fun zoneLabel(c: Canvas, text: String, r: RectF, active: Boolean, rotate: Float = 0f) {
+        zoneText.color = if (active) accent else withAlpha(hintColor, 230)
+        val lines = text.split('\n')
+        // Shrink to fit the area (rotated labels fit its height).
+        val room = (if (rotate != 0f) r.height() else r.width()) - 10 * d
+        val widest = lines.maxOf { zoneText.measureText(it) }
+        val baseSize = zoneText.textSize
+        if (widest > room) zoneText.textSize = baseSize * room / widest
+        c.save()
+        c.translate(r.centerX(), r.centerY())
+        if (rotate != 0f) c.rotate(rotate)
+        val lh = zoneText.textSize * 1.15f
+        lines.forEachIndexed { i, line ->
+            c.drawText(line, -zoneText.measureText(line) / 2, (i - (lines.size - 1) / 2f) * lh + zoneText.textSize * 0.35f, zoneText)
+        }
+        c.restore()
+        zoneText.textSize = baseSize
+    }
+
+    private fun drawGuide(c: Canvas, cs: Float, es: Float) {
+        val w = width.toFloat(); val h = height.toFloat()
+        val band = Gestures.sideBand(h, d)
+        val bandTop = (h - band) / 2; val bandBottom = bandTop + band
+        val zones = listOf(
+            Triple("tl", RectF(0f, 0f, cs, cs), "Top-left\ncorner"), Triple("tr", RectF(w - cs, 0f, w, cs), "Top-right\ncorner"),
+            Triple("bl", RectF(0f, h - cs, cs, h), "Bottom-left\ncorner"), Triple("br", RectF(w - cs, h - cs, w, h), "Bottom-right\ncorner"),
+            Triple("t", RectF(cs, 0f, w - cs, es), "Top edge"), Triple("b", RectF(cs, h - es, w - cs, h), "Bottom edge"),
+            Triple("l", RectF(0f, bandTop, es, bandBottom), "Left edge"), Triple("r", RectF(w - es, bandTop, w, bandBottom), "Right edge"),
+        )
+        c.save()
+        c.clipPath(android.graphics.Path().apply { addRoundRect(rect, radius, radius, android.graphics.Path.Direction.CW) })
+        for ((id, r, label) in zones) {
+            val on = id == activePlace
+            zoneFill.color = withAlpha(accent, if (on) 90 else 26)
+            c.drawRect(r, zoneFill)
+            zoneEdge.color = withAlpha(accent, if (on) 220 else 90)
+            c.drawRect(r, zoneEdge)
+            when (id) {
+                "l" -> zoneLabel(c, label, r, on, -90f)
+                "r" -> zoneLabel(c, label, r, on, 90f)
+                else -> zoneLabel(c, label, r, on)
+            }
+        }
+        c.restore()
+        // The middle.
+        middleText.color = if (activeMiddle) accent else withAlpha(Color.WHITE, 200)
+        zoneText.color = withAlpha(hintColor, 230)
+        val l1 = "Middle — 3, 4 or 5 fingers"
+        val l2 = "tap, double-tap or swipe"
+        val l3 = "Corners and edges: 1, 2 or 3 fingers"
+        val cy = h / 2
+        c.drawText(l1, (w - middleText.measureText(l1)) / 2, cy - 10 * d, middleText)
+        c.drawText(l2, (w - zoneText.measureText(l2)) / 2, cy + 12 * d, zoneText)
+        c.drawText(l3, (w - zoneText.measureText(l3)) / 2, cy + 32 * d, zoneText)
+    }
+
     var title: String = ""
         set(v) { field = v; invalidate() }
 
@@ -74,6 +152,14 @@ class TrackpadSurface(ctx: Context, private val base: Int, private val accent: I
 
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
         rect.set(0.5f * d, 0.5f * d, w - 0.5f * d, h - 0.5f * d)
+        // Android's Back gesture swipes in from the screen's side edges, which the trackpad nearly touches. Keep the
+        // middle of each side for the trackpad (Android allows up to 200 dp per edge): edge gestures start there.
+        val band = Gestures.sideBand(h.toFloat(), d)
+        val bandTop = ((h - band) / 2).toInt(); val bandBottom = bandTop + band.toInt()
+        systemGestureExclusionRects = listOf(
+            android.graphics.Rect(0, bandTop, Gestures.edgeSize(d).toInt(), bandBottom),
+            android.graphics.Rect(w - Gestures.edgeSize(d).toInt(), bandTop, w, bandBottom),
+        )
         val top = blend(base, Color.WHITE, 0.06f)
         val bottom = blend(base, Color.BLACK, 0.12f)
         fill.shader = LinearGradient(0f, 0f, 0f, h.toFloat(), top, bottom, Shader.TileMode.CLAMP)
@@ -99,6 +185,25 @@ class TrackpadSurface(ctx: Context, private val base: Int, private val accent: I
             }
             y += step
         }
+
+        // Corner and edge marks: a soft arc inside a corner, a short bar along the middle of an edge.
+        if (places.isNotEmpty()) {
+            mark.strokeWidth = 3 * d
+            mark.color = withAlpha(accent, 90)
+            val r = Gestures.cornerSize(width.toFloat(), height.toFloat(), d) * 0.45f; val inset = 10 * d
+            for (p in places) when (p) {
+                "tl" -> c.drawArc(RectF(inset, inset, inset + 2 * r, inset + 2 * r), 180f, 90f, false, mark)
+                "tr" -> c.drawArc(RectF(width - inset - 2 * r, inset, width - inset, inset + 2 * r), 270f, 90f, false, mark)
+                "bl" -> c.drawArc(RectF(inset, height - inset - 2 * r, inset + 2 * r, height - inset), 90f, 90f, false, mark)
+                "br" -> c.drawArc(RectF(width - inset - 2 * r, height - inset - 2 * r, width - inset, height - inset), 0f, 90f, false, mark)
+                "l" -> Gestures.sideBand(height.toFloat(), d).let { b -> c.drawLine(6 * d, height / 2f - b / 2 + 12 * d, 6 * d, height / 2f + b / 2 - 12 * d, mark) }
+                "r" -> Gestures.sideBand(height.toFloat(), d).let { b -> c.drawLine(width - 6 * d, height / 2f - b / 2 + 12 * d, width - 6 * d, height / 2f + b / 2 - 12 * d, mark) }
+                "t" -> c.drawLine(width / 2f - 34 * d, 6 * d, width / 2f + 34 * d, 6 * d, mark)
+                "b" -> c.drawLine(width / 2f - 34 * d, height - 6 * d, width / 2f + 34 * d, height - 6 * d, mark)
+            }
+        }
+
+        if (guide) drawGuide(c, Gestures.cornerSize(width.toFloat(), height.toFloat(), d), Gestures.edgeSize(d))
 
         // Finger glows.
         val r = 70 * d
