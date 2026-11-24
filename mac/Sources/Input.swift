@@ -70,6 +70,8 @@ final class InputControl {
             if let name = m["key"] as? String { setModifier(name, down: m["down"] as? Bool ?? false) }
         case "gesture":
             gesture(m["dir"] as? String ?? "")
+        case "action":
+            action(m["id"] as? String ?? "")
         case "zoom":
             // ⌘+ / ⌘− : zooms browsers, Finder, Mail, Preview and most other apps.
             press(m["dir"] as? String == "out" ? 27 : 24, flags: .maskCommand)
@@ -179,6 +181,23 @@ final class InputControl {
             }
         case "up": missionControl(nil)          // Mission Control
         case "down": missionControl("2")        // App Exposé
+        default: break
+        }
+    }
+
+    /// A trackpad shortcut button (or a swipe set to one) on the phone: the Mac's own keys for it.
+    private func action(_ id: String) {
+        switch id {
+        case "prev_tab": press(48, flags: [.maskControl, .maskShift])  // ⌃⇧Tab
+        case "next_tab": press(48, flags: .maskControl)                // ⌃Tab
+        case "mission_control": missionControl(nil)
+        case "app_expose": missionControl("2")
+        case "show_desktop": missionControl("1")
+        case "prev_space": press(123, flags: .maskControl)             // ⌃←
+        case "next_space": press(124, flags: .maskControl)             // ⌃→
+        case "back": press(33, flags: .maskCommand)                    // ⌘[
+        case "forward": press(30, flags: .maskCommand)                 // ⌘]
+        case "spotlight": press(49, flags: .maskCommand)               // ⌘Space
         default: break
         }
     }
