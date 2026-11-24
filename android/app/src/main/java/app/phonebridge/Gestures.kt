@@ -9,7 +9,7 @@ import kotlin.math.hypot
 
 /**
  * Gestures of your own. Anywhere on the trackpad: three to five fingers, a tap, double-tap or swipe ←→↑↓. In a
- * corner: one or two fingers, a tap, double-tap or hold. From an edge: one or two fingers swiping in. In the middle,
+ * corner: one to three fingers, a tap, double-tap or hold. From an edge: one to three fingers swiping in. In the middle,
  * one and two fingers stay the trackpad's own (move, click, scroll, pinch, right-click).
  * A gesture is named "<fingers>:<motion>" plus "@<place>" for a corner or edge: "4:swipe_up", "2:tap@tr",
  * "1:edge_in@r". The trackpad runs whatever is set for it and the editor records it.
@@ -46,8 +46,21 @@ object Gestures {
     /** How much of the left and right edges (centred) belongs to the trackpad rather than Android's Back gesture. */
     fun sideBand(h: Float, density: Float) = minOf(h * 0.6f, 190 * density)
 
+    /** A corner's size: room for two or three fingertips, but never more than 30% of the trackpad. */
+    fun cornerSize(w: Float, h: Float, density: Float) = minOf(120 * density, 0.3f * minOf(w, h))
+
+    /** How deep an edge band is. */
+    fun edgeSize(density: Float) = 56 * density
+
+    /** Fingers that fit in a corner or an edge band. */
+    const val PLACE_FINGERS = 3
+
+    /** The swipe direction that goes inwards from an edge. */
+    fun inward(place: String) = when (place) { "l" -> "right"; "r" -> "left"; "t" -> "down"; else -> "up" }
+
     /** The corner or edge a touch at (x, y) starts in, on a [w]×[h] trackpad; null for the middle. */
-    fun placeAt(x: Float, y: Float, w: Float, h: Float, corner: Float, edge: Float, density: Float): String? {
+    fun placeAt(x: Float, y: Float, w: Float, h: Float, density: Float): String? {
+        val corner = cornerSize(w, h, density); val edge = edgeSize(density)
         val left = x < corner; val right = x > w - corner; val top = y < corner; val bottom = y > h - corner
         val inBand = kotlin.math.abs(y - h / 2) < sideBand(h, density) / 2
         return when {
@@ -138,9 +151,13 @@ class TapPairer(private val waitsForDouble: (fingers: Int, place: String?) -> Bo
 class PlaceReader(
     private val swipeDistance: Float,
     private val slop: Float,
-    private val onGesture: (fingers: Int, motion: String, place: String) -> Unit,
+    /** Returns false if nothing is set for it, so the touch goes back to being ordinary moving or scrolling. */
+    private val onGesture: (fingers: Int, motion: String, place: String) -> Boolean,
     private val onTap: (fingers: Int, place: String) -> Unit,
 ) {
+    /** The touch isn't a gesture after all (it wandered off in a corner, or slid along an edge): treat it normally. */
+    var abandoned = false
+        private set
     private val main = Handler(Looper.getMainLooper())
     var place: String? = null
         private set
@@ -153,12 +170,12 @@ class PlaceReader(
     private var done = false
     private val hold = Runnable {
         val p = place ?: return@Runnable
-        if (!done && Gestures.isCorner(p) && travelled < slop) { done = true; onGesture(fingers, "hold", p) }
+        if (!done && Gestures.isCorner(p) && travelled < slop) { done = true; if (!onGesture(fingers, "hold", p)) abandoned = true }
     }
 
     fun start(e: MotionEvent, place: String) {
         this.place = place
-        fingers = 1; travelled = 0f; done = false
+        fingers = 1; travelled = 0f; done = false; abandoned = false
         x0 = e.x; y0 = e.y; downAt = SystemClock.uptimeMillis()
         main.removeCallbacks(hold)
         if (Gestures.isCorner(place)) main.postDelayed(hold, 550)
@@ -171,10 +188,15 @@ class PlaceReader(
             MotionEvent.ACTION_MOVE -> {
                 val dx = e.getX(0) - x0; val dy = e.getY(0) - y0
                 travelled = maxOf(travelled, hypot(dx, dy))
-                if (!done && !Gestures.isCorner(p)) {
+                if (done || abandoned) return
+                if (Gestures.isCorner(p)) {
+                    // Corners take taps and holds: a finger that wanders off is moving the pointer.
+                    if (travelled > slop * 2) { abandoned = true; main.removeCallbacks(hold) }
+                } else {
                     // Inwards from the edge it started at.
                     val inward = when (p) { "l" -> dx; "r" -> -dx; "t" -> dy; else -> -dy }
-                    if (inward >= swipeDistance) { done = true; onGesture(fingers, "edge_in", p) }
+                    if (inward >= swipeDistance) { done = true; if (!onGesture(fingers, "edge_in", p)) abandoned = true }
+                    else if (travelled > slop * 2 && inward < travelled * 0.6f) abandoned = true // along the edge, or out
                 }
             }
             MotionEvent.ACTION_UP -> {

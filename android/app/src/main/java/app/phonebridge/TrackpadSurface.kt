@@ -45,10 +45,10 @@ class TrackpadSurface(ctx: Context, private val base: Int, private val accent: I
     private val mark = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
 
     /**
-     * Recording guide: (corner size, edge size) in pixels, as the trackpad reads places. When set, the corners, edges
-     * and middle are drawn as labelled areas, and [activePlace] (or the middle, with [activeMiddle]) lights up.
+     * Recording guide: the corners, edges and middle drawn as labelled areas, at the sizes the trackpad reads places
+     * with, and [activePlace] (or the middle, with [activeMiddle]) lit up.
      */
-    var guide: Pair<Float, Float>? = null
+    var guide = false
         set(v) { field = v; invalidate() }
     var activePlace: String? = null
         set(v) { field = v; invalidate() }
@@ -110,7 +110,7 @@ class TrackpadSurface(ctx: Context, private val base: Int, private val accent: I
         zoneText.color = withAlpha(hintColor, 230)
         val l1 = "Middle — 3, 4 or 5 fingers"
         val l2 = "tap, double-tap or swipe"
-        val l3 = "1–2 fingers: start in a corner or at an edge"
+        val l3 = "Corners and edges: 1, 2 or 3 fingers"
         val cy = h / 2
         c.drawText(l1, (w - middleText.measureText(l1)) / 2, cy - 10 * d, middleText)
         c.drawText(l2, (w - zoneText.measureText(l2)) / 2, cy + 12 * d, zoneText)
@@ -157,8 +157,8 @@ class TrackpadSurface(ctx: Context, private val base: Int, private val accent: I
         val band = Gestures.sideBand(h.toFloat(), d)
         val bandTop = ((h - band) / 2).toInt(); val bandBottom = bandTop + band.toInt()
         systemGestureExclusionRects = listOf(
-            android.graphics.Rect(0, bandTop, (40 * d).toInt(), bandBottom),
-            android.graphics.Rect(w - (40 * d).toInt(), bandTop, w, bandBottom),
+            android.graphics.Rect(0, bandTop, Gestures.edgeSize(d).toInt(), bandBottom),
+            android.graphics.Rect(w - Gestures.edgeSize(d).toInt(), bandTop, w, bandBottom),
         )
         val top = blend(base, Color.WHITE, 0.06f)
         val bottom = blend(base, Color.BLACK, 0.12f)
@@ -190,7 +190,7 @@ class TrackpadSurface(ctx: Context, private val base: Int, private val accent: I
         if (places.isNotEmpty()) {
             mark.strokeWidth = 3 * d
             mark.color = withAlpha(accent, 90)
-            val r = 30 * d; val inset = 10 * d
+            val r = Gestures.cornerSize(width.toFloat(), height.toFloat(), d) * 0.45f; val inset = 10 * d
             for (p in places) when (p) {
                 "tl" -> c.drawArc(RectF(inset, inset, inset + 2 * r, inset + 2 * r), 180f, 90f, false, mark)
                 "tr" -> c.drawArc(RectF(width - inset - 2 * r, inset, width - inset, inset + 2 * r), 270f, 90f, false, mark)
@@ -203,7 +203,7 @@ class TrackpadSurface(ctx: Context, private val base: Int, private val accent: I
             }
         }
 
-        guide?.let { (cs, es) -> drawGuide(c, cs, es) }
+        if (guide) drawGuide(c, Gestures.cornerSize(width.toFloat(), height.toFloat(), d), Gestures.edgeSize(d))
 
         // Finger glows.
         val r = 70 * d
