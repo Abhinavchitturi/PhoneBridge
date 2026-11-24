@@ -17,7 +17,7 @@
     <ApplicationIcon>Assets\PhoneBridge.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <!-- Keep in step with the Mac and Android apps (release.sh requires matching versions). -->
-    <Version>0.24</Version>
+    <Version>0.25</Version>
     <Product>PhoneBridge</Product>
     <Company>PhoneBridge</Company>
     <Description>PhoneBridge for Windows</Description>
