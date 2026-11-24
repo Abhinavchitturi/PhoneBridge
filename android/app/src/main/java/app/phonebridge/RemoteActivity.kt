@@ -850,7 +850,8 @@ class RemoteActivity : Activity() {
         releaseHeld()
         mods.clear(); modViews.clear(); charViews.clear()
         // A key: label, what it does, its width relative to a letter key, a modifier name, and whether holding repeats it.
-        class K(val label: String, val weight: Float = 1f, val mod: String? = null, val repeats: Boolean = false, val action: () -> Unit)
+        // (Every key but the modifiers and Vertical types the moment it goes down and repeats while held, like a real one.)
+        class K(val label: String, val weight: Float = 1f, val mod: String? = null, val repeats: Boolean = false, val onRelease: Boolean = false, val action: () -> Unit)
         fun ch(c: String) = K(c) { typeChar(c) }
         fun sp(label: String, name: String, w: Float) =
             K(label, w, repeats = name in setOf("backspace", "left", "right", "up", "down")) { pressSpecial(name) }
@@ -861,7 +862,7 @@ class RemoteActivity : Activity() {
             listOf(mod("⌃ control", "ctrl", 1.9f)) + "asdfghjkl;'".map { ch(it.toString()) } + sp("return", "return", 2.1f),
             listOf(mod("⇧ shift", "shift", 2.4f)) + "zxcvbnm,./".map { ch(it.toString()) } + sp("↑", "up", 1f) + mod("⇧ shift", "shift", 1.6f),
             listOf(
-                K("↺ Vertical", 1.5f) { vertical() },
+                K("↺ Vertical", 1.5f, onRelease = true) { vertical() },
                 mod("⌥ option", "opt", 1.4f), mod("⌘ cmd", "cmd", 1.7f), sp("space", "space", 5.6f),
                 mod("⌘ cmd", "cmd", 1.7f), mod("⌥ option", "opt", 1.4f),
                 sp("←", "left", 1f), sp("↓", "down", 1f), sp("→", "right", 1f),
@@ -870,6 +871,7 @@ class RemoteActivity : Activity() {
         // The keys sit on a base plate, like a real keyboard.
         val wrap = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            isMotionEventSplittingEnabled = true
             setPadding(dp(6), dp(6), dp(6), dp(6))
             background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(mix(bg, android.graphics.Color.WHITE, 0.05f), mix(bg, android.graphics.Color.BLACK, 0.2f))).apply {
                 cornerRadius = dp(18).toFloat(); setStroke(dp(1), tint(android.graphics.Color.WHITE, 16))
@@ -878,6 +880,7 @@ class RemoteActivity : Activity() {
         rows.forEach { row ->
             wrap.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
+                isMotionEventSplittingEnabled = true // each finger goes to the key it's on: several keys at once
                 row.forEach { k ->
                     val v = label(k.label, if (k.label.length > 1) 12f else 17f, text, bold = k.label.length > 1).apply {
                         gravity = Gravity.CENTER
@@ -887,8 +890,9 @@ class RemoteActivity : Activity() {
                         maxLines = 1
                         when {
                             k.mod != null -> modifierTouch(this, k.mod)
-                            k.repeats -> repeatTouch(this, k.action)
-                            else -> setOnClickListener { performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); k.action() }
+                            k.onRelease -> setOnClickListener { performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); k.action() }
+                            // ⌫ and arrows start repeating sooner, like macOS; letters after a longer hold.
+                            else -> repeatTouch(this, k.action, delay = if (k.repeats) 400L else 500L)
                         }
                     }
                     if (k.label.length == 1 && k.label !in setOf("↑", "↓", "←", "→")) charViews += v to k.label
@@ -940,9 +944,12 @@ class RemoteActivity : Activity() {
         }
     }
 
-    /** ⌫ and the arrows repeat while held, like a real keyboard. */
+    /**
+     * A key that types the moment a finger lands on it (so fast, overlapping fingers type in the order they pressed)
+     * and repeats while held, like a real keyboard. Each key tracks its own finger, so several can be down at once.
+     */
     @SuppressLint("ClickableViewAccessibility")
-    private fun repeatTouch(v: View, action: () -> Unit) {
+    private fun repeatTouch(v: View, action: () -> Unit, delay: Long = 450L) {
         val repeat = object : Runnable {
             override fun run() { action(); main.postDelayed(this, 60) }
         }
@@ -952,7 +959,7 @@ class RemoteActivity : Activity() {
                     v.isPressed = true
                     v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                     action()
-                    main.postDelayed(repeat, 450)
+                    main.postDelayed(repeat, delay)
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { v.isPressed = false; main.removeCallbacks(repeat) }
             }
