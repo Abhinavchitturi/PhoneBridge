@@ -41,11 +41,7 @@ enum Paster {
             .representation(using: .png, properties: [:]) ?? data
         clipboard.setImageFromPhone(png)
         guard InputControl.ensureAccessibility(prompt: false) else { return false }
-        for down in [true, false] {
-            let e = CGEvent(keyboardEventSource: nil, virtualKey: 9, keyDown: down) // V
-            e?.flags = .maskCommand
-            e?.post(tap: .cghidEventTap)
-        }
+        InputControl.press(9, flags: .maskCommand) // ⌘V, with ⌘ pressed and released like a real keyboard
         return true
     }
 }
