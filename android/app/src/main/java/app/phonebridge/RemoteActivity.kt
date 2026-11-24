@@ -147,9 +147,6 @@ class RemoteActivity : Activity() {
         }, 16)
     }
 
-    /** When the last quick three-finger tap ended; three fingers down again soon after = zoom by dragging. */
-    private var threeTapAt = 0L
-
     /** The trackpad's hint lines: the gestures as this computer's settings have them. */
     private fun trackpadHint(platform: String, n: Int): List<String> {
         val word = if (n == 4) "4 fingers" else "3 fingers"
@@ -159,17 +156,33 @@ class RemoteActivity : Activity() {
             else Shortcuts.swipeLabel(this, platform, v).substringAfter("  ")
         }
         val lr = if (what("left") == what("right")) "← → ${what("left")}" else "← ${what("left")} · → ${what("right")}"
-        return listOf(
-            "1 finger: move, tap to click  ·  2 fingers: scroll",
+        val own = Shortcuts.controls(this, platform).count { it.gesture.isNotEmpty() }
+        return listOfNotNull(
+            "1 finger: move, tap to click  ·  2 fingers: scroll, pinch to zoom",
             "$word: $lr · ↑ ${what("up")} · ↓ ${what("down")}",
+            if (own > 0) "+ $own gesture${if (own == 1) "" else "s"} of your own" else null,
         )
+    }
+
+    /** Runs a 3+-finger gesture: your own control for it first, then (for swipes) the built-in swipe. */
+    private fun runGesture(platform: String, key: String, n: Int, pad: TrackpadSurface): Boolean {
+        Shortcuts.controlFor(this, platform, key)?.let { Shortcuts.run(it); pad.pulse(); return true }
+        val m = Gestures.motionOf(key)
+        if (m.startsWith("swipe_") && Gestures.fingersOf(key) == n) {
+            val dir = m.removePrefix("swipe_")
+            if (!Shortcuts.runSwipe(this, platform, Shortcuts.swipe(this, platform, dir)))
+                Link.send("input", "kind" to "gesture", "fingers" to n, "dir" to dir)
+            pad.pulse()
+            return true
+        }
+        return false
     }
 
     @SuppressLint("ClickableViewAccessibility")
     private fun trackpad(): View {
         val wrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val platform = Link.connectedPlatform
-        // Three or four fingers for swipes and zoom (some phones take a screenshot on a three-finger swipe).
+        // Three or four fingers for the built-in swipes (some phones take a screenshot on a three-finger swipe).
         val n = Shortcuts.fingers(this)
         val pad = TrackpadSurface(this, panel, brand, muted).apply {
             hint = trackpadHint(platform, n)
@@ -179,57 +192,61 @@ class RemoteActivity : Activity() {
         var lastX = 0f; var lastY = 0f
         var downTime = 0L; var travelled = 0f; var maxPointers = 1
         var resync = false
-        // three-finger state: where the swipe started, whether it already fired, zoom mode and how far it has zoomed
-        var startX = 0f; var startY = 0f; var swiped = false
-        var zooming = false; var zoomAcc = 0f
-        val swipeDistance = dp(55).toFloat()
-        val zoomStep = dp(30).toFloat()
+        // Two fingers: scroll or pinch, decided by the first few millimetres (spread vs. slide), then kept.
+        var twoMode = 0 // 0 undecided, 1 scroll, 2 pinch
+        var lastSpread = 0f; var spreadTotal = 0f; var slideTotal = 0f; var zoomAcc = 0f
+        val zoomStep = dp(38).toFloat()
+        val pairer = TapPairer({ f -> Shortcuts.controlFor(this, platform, Gestures.key(f, "double_tap")) != null }) { key ->
+            if (runGesture(platform, key, n, pad)) pad.performHapticFeedback(HapticFeedbackConstants.GESTURE_END)
+        }
+        val reader = MultiFingerReader(dp(55).toFloat(), dp(18).toFloat(),
+            onSwipe = { f, dir -> if (runGesture(platform, Gestures.key(f, "swipe_$dir"), n, pad)) pad.performHapticFeedback(HapticFeedbackConstants.GESTURE_END) },
+            onTap = { f -> pairer.tap(f) })
+        fun spread(e: MotionEvent) = if (e.pointerCount >= 2) hypot(e.getX(0) - e.getX(1), e.getY(0) - e.getY(1)) else 0f
         pad.setOnTouchListener { v, e ->
             pad.track(e)
+            reader.feed(e)
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     lastX = e.x; lastY = e.y; downTime = SystemClock.uptimeMillis(); travelled = 0f; maxPointers = 1
-                    swiped = false; zooming = false; zoomAcc = 0f; resync = false
+                    resync = false; twoMode = 0; spreadTotal = 0f; slideTotal = 0f; zoomAcc = 0f
                 }
                 MotionEvent.ACTION_POINTER_DOWN -> {
                     maxPointers = maxOf(maxPointers, e.pointerCount)
                     resync = true
-                    if (e.pointerCount == n) {
-                        startX = avgX(e); startY = avgY(e)
-                        zooming = SystemClock.uptimeMillis() - threeTapAt < 600
-                        if (zooming) v.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
-                    }
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val x = if (e.pointerCount > 1) avgX(e) else e.x
                     val y = if (e.pointerCount > 1) avgY(e) else e.y
-                    if (resync) { lastX = x; lastY = y; resync = false; return@setOnTouchListener true }
+                    if (resync) { lastX = x; lastY = y; lastSpread = spread(e); resync = false; return@setOnTouchListener true }
                     val dx = x - lastX; val dy = y - lastY
                     travelled += hypot(dx, dy)
                     when {
-                        // Once three fingers touched, this touch is a gesture: never move or scroll as fingers lift.
-                        maxPointers >= n -> if (e.pointerCount >= n) {
-                            if (zooming) {
-                                zoomAcc += dy
-                                while (abs(zoomAcc) >= zoomStep) {
-                                    // fingers up = zoom in, down = zoom out
-                                    Link.send("input", "kind" to "zoom", "dir" to if (zoomAcc < 0) "in" else "out")
-                                    zoomAcc -= if (zoomAcc < 0) -zoomStep else zoomStep
-                                    v.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                }
-                            } else if (!swiped) {
-                                val tx = x - startX; val ty = y - startY
-                                if (maxOf(abs(tx), abs(ty)) >= swipeDistance) {
-                                    val dir = if (abs(tx) > abs(ty)) (if (tx < 0) "left" else "right") else (if (ty < 0) "up" else "down")
-                                    if (!Shortcuts.runSwipe(this, platform, Shortcuts.swipe(this, platform, dir)))
-                                        Link.send("input", "kind" to "gesture", "fingers" to n, "dir" to dir)
-                                    pad.pulse()
-                                    v.performHapticFeedback(HapticFeedbackConstants.GESTURE_END)
-                                    swiped = true
+                        // Three fingers or more: a gesture (the reader handles it); never move or scroll as fingers lift.
+                        maxPointers >= 3 -> {}
+                        e.pointerCount == 2 -> {
+                            val s = spread(e)
+                            val ds = s - lastSpread
+                            lastSpread = s
+                            if (twoMode == 0) {
+                                spreadTotal += ds; slideTotal += hypot(dx, dy)
+                                if (abs(spreadTotal) > dp(16) && abs(spreadTotal) > slideTotal * 1.2f) {
+                                    twoMode = 2; v.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+                                } else if (slideTotal > dp(10)) twoMode = 1
+                            }
+                            when (twoMode) {
+                                1 -> Link.send("input", "kind" to "scroll", "dx" to (dx * 1.5).toDouble(), "dy" to (dy * 1.5).toDouble())
+                                2 -> {
+                                    // Like a Mac trackpad: fingers apart = zoom in, together = zoom out.
+                                    zoomAcc += ds
+                                    while (abs(zoomAcc) >= zoomStep) {
+                                        Link.send("input", "kind" to "zoom", "dir" to if (zoomAcc > 0) "in" else "out")
+                                        zoomAcc -= if (zoomAcc > 0) zoomStep else -zoomStep
+                                        v.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    }
                                 }
                             }
                         }
-                        e.pointerCount > 1 -> Link.send("input", "kind" to "scroll", "dx" to (dx * 1.5).toDouble(), "dy" to (dy * 1.5).toDouble())
                         maxPointers == 1 -> move(dx * speed, dy * speed)
                     }
                     lastX = x; lastY = y
@@ -237,10 +254,7 @@ class RemoteActivity : Activity() {
                 MotionEvent.ACTION_POINTER_UP -> resync = true
                 MotionEvent.ACTION_UP -> {
                     val quick = SystemClock.uptimeMillis() - downTime < 300 && travelled < dp(16)
-                    when {
-                        maxPointers >= n -> threeTapAt = if (quick && !zooming) SystemClock.uptimeMillis() else 0L
-                        quick -> click(if (maxPointers >= 2) "right" else "left")
-                    }
+                    if (maxPointers < 3 && quick && twoMode != 2) click(if (maxPointers >= 2) "right" else "left")
                 }
             }
             true
@@ -306,7 +320,7 @@ class RemoteActivity : Activity() {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        for (c in Shortcuts.controls(this@RemoteActivity, platform)) {
+        for (c in Shortcuts.controls(this@RemoteActivity, platform).filter { it.onBar }) {
             row.addView(controlPill(c).apply {
                 isClickable = true
                 pressable()
@@ -438,7 +452,9 @@ class RemoteActivity : Activity() {
                 addView(arrow("↑", i > 0, -1), LinearLayout.LayoutParams(dp(34), dp(34)))
                 addView(arrow("↓", i < controls.size - 1, 1), LinearLayout.LayoutParams(dp(34), dp(34)))
             }
-            settingRow(c.name.ifEmpty { "Untitled" }, sub = Shortcuts.describe(platform, c), icon = c.icon, trailing = arrows) {
+            val sub = listOfNotNull(Shortcuts.describe(platform, c), c.gesture.takeIf { it.isNotEmpty() }?.let { Gestures.describe(it) },
+                if (!c.onBar) "not on the bar" else null).joinToString("  ·  ")
+            settingRow(c.name.ifEmpty { "Untitled" }, sub = sub, icon = c.icon, trailing = arrows) {
                 editControl(platform, c.copy(), isNew = false)
             }
         }
@@ -450,6 +466,23 @@ class RemoteActivity : Activity() {
             pressable()
             setOnClickListener { editControl(platform, Shortcuts.Control(), isNew = true) }
         }, LinearLayout.LayoutParams(-1, dp(50)).apply { topMargin = dp(12) })
+
+        // Gestures of your own.
+        list.addView(sectionTitle("YOUR GESTURES"))
+        list.addView(note("Give any control a gesture with 3, 4 or 5 fingers — a tap, double-tap or swipe. Two fingers pinch to zoom, like a Mac trackpad."))
+        val withGesture = controls.filter { it.gesture.isNotEmpty() }
+        if (withGesture.isNotEmpty()) list.addView(card(withGesture.map { c ->
+            settingRow(Gestures.describe(c.gesture), sub = "${c.name.ifEmpty { "Untitled" }} — ${Shortcuts.describe(platform, c)}", icon = c.icon) {
+                editControl(platform, c.copy(), isNew = false)
+            }
+        }), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
+        list.addView(label("+  New gesture", 15f, text, bold = true).apply {
+            gravity = Gravity.CENTER
+            background = rounded(chip, 18)
+            isClickable = true
+            pressable()
+            setOnClickListener { editControl(platform, Shortcuts.Control(onBar = false), isNew = true) }
+        }, LinearLayout.LayoutParams(-1, dp(50)))
 
         // Swipes.
         list.addView(sectionTitle("SWIPES"))
@@ -643,6 +676,60 @@ class RemoteActivity : Activity() {
             }
         }
 
+        // A gesture of your own: do it on the little trackpad to record it.
+        list.addView(sectionTitle("GESTURE (OPTIONAL)"))
+        list.addView(note("Do it here with 3, 4 or 5 fingers: a tap, a double-tap or a swipe. One and two fingers are for moving, clicking, scrolling and zooming."))
+        val status = label("", 14f, text, bold = true).apply { setPadding(dp(6), dp(10), dp(6), 0) }
+        fun showStatus(error: String? = null) {
+            when {
+                error != null -> { status.text = error; status.setTextColor(android.graphics.Color.rgb(255, 105, 97)) }
+                c.gesture.isEmpty() -> { status.text = "No gesture yet"; status.setTextColor(muted) }
+                else -> { status.text = "✓  ${Gestures.describe(c.gesture)}"; status.setTextColor(text) }
+            }
+        }
+        val recorder = TrackpadSurface(this, mix(panel, brand, 0.06f), brand, muted).apply {
+            title = "RECORD A GESTURE"
+            hint = listOf("Tap, double-tap or swipe with 3+ fingers")
+        }
+        val recPairer = TapPairer({ true }) { key ->
+            val owner = Shortcuts.gestureOwner(this, platform, key, exceptId = c.id)
+            if (owner != null) {
+                showStatus("${Gestures.describe(key)} already exists — it's $owner. Try a new one.")
+                recorder.performHapticFeedback(HapticFeedbackConstants.REJECT)
+            } else {
+                c.gesture = key
+                showStatus()
+                recorder.pulse()
+                recorder.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+            }
+        }
+        val recReader = MultiFingerReader(dp(45).toFloat(), dp(18).toFloat(),
+            onSwipe = { f, dir -> recordSwipe(platform, c, Gestures.key(f, "swipe_$dir"), recorder, ::showStatus) },
+            onTap = { f -> recPairer.tap(f) })
+        recorder.setOnTouchListener { v, e ->
+            // Keep the page from scrolling while recording.
+            if (e.actionMasked == MotionEvent.ACTION_DOWN) v.parent.requestDisallowInterceptTouchEvent(true)
+            recorder.track(e)
+            recReader.feed(e)
+            if (e.actionMasked == MotionEvent.ACTION_UP && recReader.fingers in 1..2)
+                showStatus("Use 3, 4 or 5 fingers — one and two are the trackpad's own.")
+            true
+        }
+        list.addView(recorder, LinearLayout.LayoutParams(-1, dp(190)))
+        list.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(status, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(label("Clear", 14f, brand).apply {
+                setPadding(dp(12), dp(10), dp(6), 0)
+                isClickable = true
+                setOnClickListener { c.gesture = ""; showStatus() }
+            })
+        })
+        showStatus()
+        list.addView(card(listOf(settingRow("Show as a button on the bar", value = if (c.onBar) "On" else "Off") { c.onBar = !c.onBar; redraw() })),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+
         // Try it now, then save or delete.
         list.addView(label("Try it on the ${Shortcuts.computerKind(platform)}", 15f, text, bold = true).apply {
             gravity = Gravity.CENTER
@@ -667,6 +754,9 @@ class RemoteActivity : Activity() {
         page(pageHeader(if (isNew) "New control" else "Edit control", "Cancel", { show(0) }, "Save") {
             when {
                 c.name.isBlank() -> android.widget.Toast.makeText(this, "Give it a name", android.widget.Toast.LENGTH_SHORT).show()
+                !c.onBar && c.gesture.isEmpty() -> android.widget.Toast.makeText(this, "Put it on the bar or give it a gesture", android.widget.Toast.LENGTH_SHORT).show()
+                c.gesture.isNotEmpty() && Shortcuts.gestureOwner(this, platform, c.gesture, exceptId = c.id) != null ->
+                    android.widget.Toast.makeText(this, "That gesture already exists — try a new one", android.widget.Toast.LENGTH_SHORT).show()
                 !c.complete -> android.widget.Toast.makeText(this, when (c.type) {
                     Shortcuts.KEYS -> "Pick a key"; Shortcuts.TEXT -> "Add the text to type"; else -> "Pick an action"
                 }, android.widget.Toast.LENGTH_SHORT).show()
@@ -678,6 +768,19 @@ class RemoteActivity : Activity() {
                 }
             }
         }, list)
+    }
+
+    private fun recordSwipe(platform: String, c: Shortcuts.Control, key: String, recorder: TrackpadSurface, showStatus: (String?) -> Unit) {
+        val owner = Shortcuts.gestureOwner(this, platform, key, exceptId = c.id)
+        if (owner != null) {
+            showStatus("${Gestures.describe(key)} already exists — it's $owner. Try a new one.")
+            recorder.performHapticFeedback(HapticFeedbackConstants.REJECT)
+        } else {
+            c.gesture = key
+            showStatus(null)
+            recorder.pulse()
+            recorder.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+        }
     }
 
     private fun hideKeyboard() = getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(body.windowToken, 0)

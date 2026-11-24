@@ -27,11 +27,16 @@ object Shortcuts {
         var key: String = "",
         var text: String = "",
         var action: String = "",
+        /** A trackpad gesture that runs it, e.g. "4:swipe_up" (see [Gestures]); empty for none. */
+        var gesture: String = "",
+        /** Shown as a button under the trackpad (a gesture-only control isn't). */
+        var onBar: Boolean = true,
     ) {
-        fun copy() = Control(id, name, icon, type, mods.toList(), key, text, action)
+        fun copy() = Control(id, name, icon, type, mods.toList(), key, text, action, gesture, onBar)
 
         fun toJson() = JSONObject().put("id", id).put("name", name).put("icon", icon).put("type", type)
             .put("mods", JSONArray(mods)).put("key", key).put("text", text).put("action", action)
+            .put("gesture", gesture).put("onBar", onBar)
 
         /** Ready to run: a shortcut needs a key, text needs text, a built-in needs its action. */
         val complete get() = when (type) { KEYS -> key.isNotEmpty(); TEXT -> text.isNotEmpty(); else -> action.isNotEmpty() }
@@ -41,6 +46,7 @@ object Shortcuts {
                 o.optString("id", UUID.randomUUID().toString()), o.optString("name"), o.optString("icon", "★"),
                 o.optString("type", KEYS), o.optJSONArray("mods")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
                 o.optString("key"), o.optString("text"), o.optString("action"),
+                o.optString("gesture"), o.optBoolean("onBar", true),
             )
         }
     }
@@ -157,6 +163,27 @@ object Shortcuts {
         if (i < 0 || j !in list.indices) return
         list.add(j, list.removeAt(i))
         saveControls(ctx, platform, list)
+    }
+
+    // MARK: Gestures of your own
+
+    /** The control a gesture runs, if any. */
+    fun controlFor(ctx: Context, platform: String, key: String) =
+        controls(ctx, platform).firstOrNull { it.gesture == key && it.complete }
+
+    /**
+     * Who already uses this gesture (a control, or one of the built-in swipes), as the user would call it, or null
+     * if it's free. [exceptId] is the control being edited.
+     */
+    fun gestureOwner(ctx: Context, platform: String, key: String, exceptId: String? = null): String? {
+        controls(ctx, platform).firstOrNull { it.gesture == key && it.id != exceptId }?.let { return "“${it.name.ifEmpty { "Untitled" }}”" }
+        val m = Gestures.motionOf(key)
+        if (m.startsWith("swipe_") && Gestures.fingersOf(key) == fingers(ctx)) {
+            val dir = m.removePrefix("swipe_")
+            val v = swipe(ctx, platform, dir)
+            if (v != NOTHING) return "the swipe $dir (${swipeLabel(ctx, platform, v).substringAfter("  ")})"
+        }
+        return null
     }
 
     // MARK: Swipes
