@@ -698,72 +698,17 @@ class RemoteActivity : Activity() {
 
         // A gesture of your own: do it on the little trackpad to record it.
         list.addView(sectionTitle("GESTURE (OPTIONAL)"))
-        list.addView(note("Do it here. Anywhere: 3, 4 or 5 fingers — tap, double-tap or swipe. In a corner: 1 or 2 fingers — tap, double-tap or hold. From an edge: 1 or 2 fingers swiping in. (In the middle, 1 and 2 fingers stay for moving, clicking, scrolling and zooming.)"))
-        val status = label("", 14f, text, bold = true).apply { setPadding(dp(6), dp(10), dp(6), 0) }
-        fun showStatus(error: String? = null) {
-            when {
-                error != null -> { status.text = error; status.setTextColor(android.graphics.Color.rgb(255, 105, 97)) }
-                c.gesture.isEmpty() -> { status.text = "No gesture yet"; status.setTextColor(muted) }
-                else -> { status.text = "✓  ${Gestures.describe(c.gesture)}"; status.setTextColor(text) }
-            }
-        }
-        val recorder = TrackpadSurface(this, mix(panel, brand, 0.06f), brand, muted).apply {
-            title = "RECORD A GESTURE"
-            hint = listOf("Corners and edges are marked")
-            places = Gestures.places.keys // show where corners and edges are
-        }
-        var recordedThisTouch = false
-        fun record(key: String) {
-            recordedThisTouch = true
-            val owner = Shortcuts.gestureOwner(this, platform, key, exceptId = c.id)
-            if (owner != null) {
-                showStatus("${Gestures.describe(key)} already exists — it's $owner. Try a new one.")
-                recorder.performHapticFeedback(HapticFeedbackConstants.REJECT)
-            } else {
-                c.gesture = key
-                showStatus()
-                recorder.pulse()
-                recorder.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-            }
-        }
-        val recPairer = TapPairer({ _, _ -> true }) { key -> record(key) }
-        val recReader = MultiFingerReader(dp(45).toFloat(), dp(18).toFloat(),
-            onSwipe = { f, dir -> record(Gestures.key(f, "swipe_$dir")) },
-            onTap = { f -> recordedThisTouch = true; recPairer.tap(f) })
-        val recPlaces = PlaceReader(dp(40).toFloat(), dp(14).toFloat(),
-            onGesture = { f, motion, place -> if (f <= 2) record(Gestures.key(f, motion, place)) },
-            onTap = { f, place -> if (f <= 2) { recordedThisTouch = true; recPairer.tap(f, place) } })
-        var recPlace: String? = null
-        recorder.setOnTouchListener { v, e ->
-            // Keep the page from scrolling while recording.
-            if (e.actionMasked == MotionEvent.ACTION_DOWN) {
-                v.parent.requestDisallowInterceptTouchEvent(true)
-                recordedThisTouch = false
-                recPlace = Gestures.placeAt(e.x, e.y, v.width.toFloat(), v.height.toFloat(), dp(48).toFloat(), dp(22).toFloat(), resources.displayMetrics.density)
-                recPlace?.let { recPlaces.start(e, it) }
-            }
-            recorder.track(e)
-            recReader.feed(e)
-            if (recPlace != null) recPlaces.feed(e)
-            if (e.actionMasked == MotionEvent.ACTION_UP && !recordedThisTouch && recReader.fingers in 1..2) showStatus(when {
-                recPlace == null -> "In the middle, use 3, 4 or 5 fingers. With 1 or 2, start in a corner or at an edge."
-                Gestures.isCorner(recPlace!!) -> "In a corner: tap, double-tap, or hold for half a second."
-                else -> "From an edge: start at the edge and swipe inwards."
-            })
-            true
-        }
-        list.addView(recorder, LinearLayout.LayoutParams(-1, dp(190)))
-        list.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(status, LinearLayout.LayoutParams(0, -2, 1f))
-            addView(label("Clear", 14f, brand).apply {
-                setPadding(dp(12), dp(10), dp(6), 0)
-                isClickable = true
-                setOnClickListener { c.gesture = ""; showStatus() }
-            })
+        list.addView(note("Record it on a full-size trackpad with the corners, edges and middle marked, so you can see exactly where it goes."))
+        list.addView(card(listOf(
+            settingRow(if (c.gesture.isEmpty()) "Record a gesture" else Gestures.describe(c.gesture),
+                sub = if (c.gesture.isEmpty()) null else "Tap to record a different one",
+                value = "›", icon = "✋") { recordGesture(platform, c, isNew) },
+        )))
+        if (c.gesture.isNotEmpty()) list.addView(label("Remove gesture", 14f, android.graphics.Color.rgb(255, 105, 97)).apply {
+            setPadding(dp(8), dp(12), dp(8), 0)
+            isClickable = true
+            setOnClickListener { c.gesture = ""; redraw() }
         })
-        showStatus()
         list.addView(card(listOf(settingRow("Show as a button on the bar", value = if (c.onBar) "On" else "Off") { c.onBar = !c.onBar; redraw() })),
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
 
@@ -805,6 +750,104 @@ class RemoteActivity : Activity() {
                 }
             }
         }, list)
+    }
+
+    /**
+     * Records a gesture on a trackpad as big as the real one, with its corners, edges and middle drawn and labelled,
+     * and the part a finger lands on lit up. "Use" keeps it for [c]; Cancel goes back to the editor unchanged.
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun recordGesture(platform: String, c: Shortcuts.Control, isNew: Boolean) {
+        hideKeyboard()
+        body.removeAllViews()
+        // The same sizes the trackpad uses to read places, so what you see here is where it works.
+        val cornerSize = dp(64).toFloat(); val edgeSize = dp(26).toFloat()
+        var recorded: String? = null
+        val status = label("Do the gesture on the trackpad", 15f, muted, bold = true).apply {
+            gravity = Gravity.CENTER; setPadding(dp(8), dp(14), dp(8), dp(4)); minLines = 2
+        }
+        val pad = TrackpadSurface(this, panel, brand, muted).apply { guide = cornerSize to edgeSize }
+        lateinit var useButton: TextView
+        fun record(key: String) {
+            val owner = Shortcuts.gestureOwner(this, platform, key, exceptId = c.id)
+            if (owner != null) {
+                recorded = null
+                status.text = "${Gestures.describe(key)} already exists — it's $owner. Try a new one."
+                status.setTextColor(android.graphics.Color.rgb(255, 105, 97))
+                pad.performHapticFeedback(HapticFeedbackConstants.REJECT)
+            } else {
+                recorded = key
+                status.text = "✓  ${Gestures.describe(key)}"
+                status.setTextColor(text)
+                pad.pulse()
+                pad.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+            }
+            useButton.alpha = if (recorded != null) 1f else 0.4f
+        }
+        fun hint(s: String) { status.text = s; status.setTextColor(muted) }
+        var recordedThisTouch = false
+        val pairer = TapPairer({ _, _ -> true }) { key -> record(key) }
+        val multi = MultiFingerReader(dp(55).toFloat(), dp(18).toFloat(),
+            onSwipe = { f, dir -> recordedThisTouch = true; record(Gestures.key(f, "swipe_$dir")) },
+            onTap = { f -> recordedThisTouch = true; pairer.tap(f) })
+        val places = PlaceReader(dp(50).toFloat(), dp(14).toFloat(),
+            onGesture = { f, motion, place -> if (f <= 2) { recordedThisTouch = true; record(Gestures.key(f, motion, place)) } },
+            onTap = { f, place -> if (f <= 2) { recordedThisTouch = true; pairer.tap(f, place) } })
+        var place: String? = null
+        val clearHighlight = Runnable { pad.activePlace = null; pad.activeMiddle = false }
+        pad.setOnTouchListener { v, e ->
+            if (e.actionMasked == MotionEvent.ACTION_DOWN) {
+                main.removeCallbacks(clearHighlight)
+                recordedThisTouch = false
+                place = Gestures.placeAt(e.x, e.y, v.width.toFloat(), v.height.toFloat(), cornerSize, edgeSize, resources.displayMetrics.density)
+                pad.activePlace = place
+                pad.activeMiddle = place == null
+                place?.let { places.start(e, it) }
+            }
+            pad.track(e)
+            multi.feed(e)
+            if (place != null) places.feed(e)
+            if (e.actionMasked == MotionEvent.ACTION_UP) {
+                main.postDelayed(clearHighlight, 700)
+                if (!recordedThisTouch && multi.fingers in 1..2) hint(when {
+                    place == null -> "In the middle, use 3, 4 or 5 fingers. With 1 or 2, start in a corner or at an edge."
+                    Gestures.isCorner(place!!) -> "In a corner: tap, double-tap, or hold for half a second."
+                    else -> "From an edge: start in the edge band and swipe inwards."
+                })
+            }
+            true
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(10))
+            addView(label("Cancel", 15f, brand).apply {
+                setPadding(dp(4), dp(8), dp(12), dp(8)); isClickable = true
+                setOnClickListener { editControl(platform, c, isNew, keepScroll = true) }
+            })
+            addView(label("Record a gesture", 20f, text, bold = true), LinearLayout.LayoutParams(0, -2, 1f))
+            useButton = label("Use", 14.5f, onBrand, bold = true).apply {
+                gravity = Gravity.CENTER
+                background = rounded(brand, 100)
+                setPadding(dp(22), dp(9), dp(22), dp(9))
+                alpha = 0.4f
+                isClickable = true
+                setOnClickListener {
+                    val key = recorded ?: return@setOnClickListener
+                    c.gesture = key
+                    editControl(platform, c, isNew, keepScroll = true)
+                }
+            }
+            addView(useButton)
+        }
+        body.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(header)
+            addView(pad, LinearLayout.LayoutParams(-1, 0, 1f))
+            addView(status)
+            // About as tall as the trackpad screen's buttons, so the trackpad here is the same size as the real one.
+            addView(View(context), LinearLayout.LayoutParams(1, dp(60)))
+        })
     }
 
     private fun hideKeyboard() = getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(body.windowToken, 0)
