@@ -11,8 +11,8 @@ android {
         minSdk = 33
         // Kept at 36 on purpose: Android 17 (37) adds a local-network permission and delays OTP SMS.
         targetSdk = 36
-        versionCode = 30
-        versionName = "0.30"
+        versionCode = 31
+        versionName = "0.31"
     }
 
     buildTypes {
