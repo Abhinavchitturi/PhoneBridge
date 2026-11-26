@@ -36,6 +36,9 @@ final class CallPanel: ObservableObject {
     var onEnded: (String?, String?, Int) -> Void = { _, _, _ in }
 
     private var panel: NSPanel?
+    /// Where the card is on screen while it's showing (the chat reply card sits just below it), and a call whenever that changes.
+    var visibleFrame: NSRect? { panel?.isVisible == true ? panel?.frame : nil }
+    var onFrameChange: () -> Void = {}
     private var ringTimer: Timer?
 
     /// The phone sends "call" reports (the call's state, who's on it, whether the other side picked up, a waiting call).
@@ -110,6 +113,7 @@ final class CallPanel: ObservableObject {
             p.setFrame(NSRect(x: p.frame.maxX - size.width, y: p.frame.maxY - size.height, width: size.width, height: size.height), display: true)
         }
         panel?.orderFrontRegardless()
+        onFrameChange()
         guard ring, ringTimer == nil else { return }
         NSSound(named: "Glass")?.play()
         ringTimer = Timer.scheduledTimer(withTimeInterval: 2.2, repeats: true) { _ in NSSound(named: "Glass")?.play() }
@@ -120,6 +124,7 @@ final class CallPanel: ObservableObject {
         ringTimer = nil
         panel?.orderOut(nil)
         panel = nil // next call gets a fresh, correctly sized card
+        onFrameChange()
         logic = CallLogic()
         muted = false
         speaker = false

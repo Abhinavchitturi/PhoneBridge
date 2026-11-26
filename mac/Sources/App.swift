@@ -256,7 +256,8 @@ final class Bridge: ObservableObject {
         callPanel.onAnswerWaiting = { [link] in link.send(["t": "call_answer", "waiting": true]) }
         callPanel.onDeclineWaiting = { [link] in link.send(["t": "call_end", "waiting": true]) }
         chatPopup.onReply = { [link] id, text in link.send(["t": "reply", "id": id, "text": text]) }
-        chatPopup.isBusy = { [callPanel] in callPanel.active || callPanel.name != nil || callPanel.outgoing }
+        chatPopup.callCardFrame = { [callPanel] in callPanel.visibleFrame }
+        callPanel.onFrameChange = { [chatPopup] in chatPopup.callCardMoved() }
         callPanel.onControl = { [link] action in link.send(["t": "call_ctl", "action": action]) }
         clipboard.send = { [link] text in link.send(["t": "clip", "text": text]) }
         clipboard.sendImage = { [link] png in link.send(["t": "clip_image", "png": png.base64EncodedString()]) }
