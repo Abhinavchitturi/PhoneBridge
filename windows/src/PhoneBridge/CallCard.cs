@@ -17,6 +17,8 @@ internal sealed class CallCard
     private System.Windows.Forms.Timer? _ringTimer;
     private SoundPlayer? _ring;
     private bool _muted, _speaker, _held;
+    /// <summary>The phone can switch its loudspeaker for this call (older phone apps don't say, so it starts on).</summary>
+    private bool _canSpeaker = true;
     /// <summary>The call's voice is on this PC's speakers / mic (Bluetooth hands-free), and a move is in progress.</summary>
     private bool _pcAudio, _pcBusy;
     private readonly CallAudio _audio = new();
@@ -36,6 +38,7 @@ internal sealed class CallCard
     /// <summary>The phone's "call" report.</summary>
     public void Update(JsonObject m)
     {
+        if (m["canSpeaker"] is JsonValue cs && cs.TryGetValue<bool>(out var canSpk)) _canSpeaker = canSpk;
         var hadWaiting = _logic.Waiting != null;
         var e = _logic.Update(m, DateTimeOffset.Now);
         switch (e.Kind)
@@ -103,7 +106,7 @@ internal sealed class CallCard
                 ["startedAt"] = _logic.StartedAt?.ToUnixTimeMilliseconds(),
                 ["waiting"] = _logic.Waiting is { } w ? new JsonObject { ["name"] = w.Name, ["number"] = w.Number } : null,
                 ["heldCaller"] = _logic.HeldCaller,
-                ["muted"] = _muted, ["speaker"] = _speaker, ["held"] = _held, ["pcAudio"] = _pcAudio, ["pcBusy"] = _pcBusy,
+                ["muted"] = _muted, ["speaker"] = _speaker, ["held"] = _held, ["pcAudio"] = _pcAudio, ["canSpeaker"] = _canSpeaker, ["pcBusy"] = _pcBusy,
             },
         });
     }
@@ -114,6 +117,7 @@ internal sealed class CallCard
         _panel?.Hide();
         _logic.Update(new JsonObject { ["state"] = "idle" }, DateTimeOffset.Now);
         _muted = _speaker = _held = _pcAudio = _pcBusy = false;
+        _canSpeaker = true;
         _audio.Reset();
     }
 

@@ -2,8 +2,7 @@ import AppKit
 import SwiftUI
 
 /// Floating call card (top-right, above full-screen apps). Incoming: Answer / Decline. Once a call is on —
-/// whoever started it, phone or Mac — it stays until the call ends, with the time talked and Mute / Speaker /
-/// Hold / End. Used instead of a notification so the buttons are always visible.
+/// whoever started it, phone or Mac — it stays until the call ends, with the time talked and End. Used instead of a notification so the buttons are always visible.
 @MainActor
 final class CallPanel: ObservableObject {
     /// All the call rules live in CallLogic (see Tests/call-logic-check.swift).
@@ -228,9 +227,9 @@ private struct ActiveCallCard: View {
                     }
                 }
             }
+            // Only End: Android lets an app answer, decline and end calls, but mute, speaker and hold belong to the phone's
+            // own call screen (checked on a Galaxy M36, Android 16), and PhoneBridge doesn't use accessibility to press them.
             HStack(spacing: 10) {
-                control("mic.slash.fill", "Mute", on: model.muted) { model.control("mute") }
-                control("speaker.wave.3.fill", "Speaker", on: model.speaker) { model.control("speaker") }
                 Button { model.hangUp() } label: {
                     VStack(spacing: 4) {
                         Image(systemName: "phone.down.fill").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
@@ -270,19 +269,6 @@ private struct ActiveCallCard: View {
         .padding(.horizontal, 12).padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.primary.opacity(0.08)))
         .padding(.top, 12)
-    }
-
-    private func control(_ icon: String, _ title: String, on: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: icon).font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(on ? Theme.onAccent : .primary)
-                    .frame(width: 44, height: 40)
-                    .background(Capsule().fill(on ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.primary.opacity(0.1))))
-                Text(title).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)
-            }
-        }
-        .buttonStyle(.plain)
     }
 }
 

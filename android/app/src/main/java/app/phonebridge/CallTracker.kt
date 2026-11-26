@@ -238,6 +238,8 @@ object CallReporter {
         Link.send(
             "call", "state" to s.state, "name" to s.name, "number" to s.number, "detail" to s.detail, "connected" to s.connected,
             "since" to s.since, "incoming" to s.incoming, "waiting" to s.waiting, "waitingName" to s.waitingName, "waitingNumber" to s.waitingNumber,
+            // Speaker from the computer only works when the dialer's notification has a Speaker button (see Calls.toggleSpeaker).
+            "canSpeaker" to (NotifListener.instance?.hasSpeakerButton() == true),
         )
         Automations.onCallState(ctx, s.state)
     }

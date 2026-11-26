@@ -150,10 +150,19 @@ class NotifListener : NotificationListenerService() {
         return send(action.actionIntent, "call button")
     }
 
+    /** The dialer's speaker toggle on the notification of the call you're on, if it has one. */
+    private fun speakerAction(): Notification.Action? {
+        val calls = callNotifications()
+        return (calls.filter { !isIncoming(it.notification) } + calls).firstNotNullOfOrNull { findCallAction(it.notification, SPEAKER_WORDS) }
+    }
+
+    /** Whether the computer's Speaker button can work for the current call. */
+    fun hasSpeakerButton(): Boolean = speakerAction() != null
+
     /** Presses the speaker toggle on the notification of the call you're on, if the dialer has one. */
     fun pressSpeakerButton(): Boolean {
         val calls = callNotifications()
-        val action = (calls.filter { !isIncoming(it.notification) } + calls).firstNotNullOfOrNull { findCallAction(it.notification, SPEAKER_WORDS) }
+        val action = speakerAction()
         if (action == null) {
             Log.d(TAG, "no speaker button; call notification buttons: " + calls.joinToString { c -> c.notification.actions.orEmpty().joinToString("|") { it.title ?: "" } })
             return false
