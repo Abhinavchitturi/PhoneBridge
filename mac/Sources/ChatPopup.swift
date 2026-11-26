@@ -21,8 +21,8 @@ final class ChatPopup: ObservableObject {
 
     /// (notification id, text) → the phone sends it through the chat app's own reply.
     var onReply: (String, String) -> Void = { _, _ in }
-    /// True while a call card is up, so the two don't overlap.
-    var isBusy: () -> Bool = { false }
+    /// The call card's frame while it's on screen, so the two don't overlap.
+    var callCardFrame: () -> NSRect? = { nil }
 
     private var panel: KeyablePanel?
     private var hosting: NSHostingView<PopupView>?
@@ -104,9 +104,16 @@ final class ChatPopup: ObservableObject {
 
     private func positionTopRight(size: NSSize) {
         // Same spot as macOS's own banners: right at the top edge of the screen, not under the menu bar.
+        // Only while a call card is actually on screen does it sit just below that card instead.
         guard let p = panel, let screen = NSScreen.main?.frame else { return }
-        let drop: CGFloat = isBusy() ? 190 : 0
-        p.setFrame(NSRect(x: screen.maxX - size.width - 14, y: screen.maxY - size.height - 12 - drop, width: size.width, height: size.height), display: true)
+        let top = callCardFrame().map { $0.minY - 10 } ?? screen.maxY - 12
+        p.setFrame(NSRect(x: screen.maxX - size.width - 14, y: top - size.height, width: size.width, height: size.height), display: true)
+    }
+
+    /// The call card came or went: move up to the top, or below the card.
+    func callCardMoved() {
+        guard panel?.isVisible == true, let h = hosting else { return }
+        positionTopRight(size: h.fittingSize)
     }
 
     private func resizeSoon() {
