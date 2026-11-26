@@ -94,7 +94,7 @@ gh release create v<version> release/PhoneBridge.dmg release/PhoneBridge.apk rel
 
 ## Not on Windows (yet)
 
-- **Call audio on the PC**: the Mac app doesn't have it either (macOS refuses Bluetooth call audio); both apps have call control
+- **Call audio on the PC** is experimental: the call card's **On PC** button asks Windows to move the call's voice to this PC over Bluetooth hands-free (pair the phone with the PC and turn on *Calls* for it on the phone). Whether Windows allows it for an app outside the Store depends on the Windows build; if it refuses, a note says which step failed and `%LOCALAPPDATA%\PhoneBridge\phonebridge.log` has the details. The Mac app doesn't have it (macOS refuses Bluetooth call audio)
 - Code signing: SmartScreen warns about an unsigned `.exe` the first time
 - Clicking an old notification in Action Center after PhoneBridge has quit does nothing (buttons work while it runs, which is always while it's in the tray)
 - Drag a photo out of the phone window into Explorer (use Download or Copy)

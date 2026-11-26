@@ -145,6 +145,8 @@ internal sealed partial class TrayApp : ApplicationContext
         {
             _callCard = new CallCard((t, f) => _link.SendAsync(t, f))
             {
+                PhoneName = () => _phoneName,
+                Note = (title, body) => _toasts.Info(title, body),
                 Ended = (name, number, seconds) =>
                 {
                     if (number == null) return;

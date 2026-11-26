@@ -17,6 +17,14 @@ internal sealed class CallCard
     private System.Windows.Forms.Timer? _ringTimer;
     private SoundPlayer? _ring;
     private bool _muted, _speaker, _held;
+    /// <summary>The call's voice is on this PC's speakers / mic (Bluetooth hands-free), and a move is in progress.</summary>
+    private bool _pcAudio, _pcBusy;
+    private readonly CallAudio _audio = new();
+
+    /// <summary>Shows a short note (why call audio couldn't move to the PC).</summary>
+    public Action<string, string> Note = (_, _) => { };
+    /// <summary>The connected phone's name, to pick it among the phones paired with this PC.</summary>
+    public Func<string> PhoneName = () => "";
 
     /// <summary>(name, number, seconds) when a call that was picked up has finished.</summary>
     public Action<string?, string?, int> Ended = (_, _, _) => { };
@@ -95,7 +103,7 @@ internal sealed class CallCard
                 ["startedAt"] = _logic.StartedAt?.ToUnixTimeMilliseconds(),
                 ["waiting"] = _logic.Waiting is { } w ? new JsonObject { ["name"] = w.Name, ["number"] = w.Number } : null,
                 ["heldCaller"] = _logic.HeldCaller,
-                ["muted"] = _muted, ["speaker"] = _speaker, ["held"] = _held,
+                ["muted"] = _muted, ["speaker"] = _speaker, ["held"] = _held, ["pcAudio"] = _pcAudio, ["pcBusy"] = _pcBusy,
             },
         });
     }
@@ -105,7 +113,8 @@ internal sealed class CallCard
         StopRinging();
         _panel?.Hide();
         _logic.Update(new JsonObject { ["state"] = "idle" }, DateTimeOffset.Now);
-        _muted = _speaker = _held = false;
+        _muted = _speaker = _held = _pcAudio = _pcBusy = false;
+        _audio.Reset();
     }
 
     private void StopRinging()
@@ -122,6 +131,7 @@ internal sealed class CallCard
             case "answer": _ = _send("call_answer", []); Hide(); break;
             case "decline": _ = _send("call_end", []); Hide(); break;
             case "hangup": _ = _send("call_end", []); break; // the card goes away when the phone reports the call is over
+            case "pc-audio": _ = TogglePcAudioAsync(); break;
             case "answer-waiting":
                 _logic.WillAnswerWaiting();
                 _ = _send("call_answer", [("waiting", true)]);
@@ -140,6 +150,20 @@ internal sealed class CallCard
                 if (action == "hold") _held = !_held;
                 break;
         }
+    }
+
+    /// <summary>Moves the call's voice to this PC, or back to the phone. Runs on the UI thread (OnCommand), so state stays there.</summary>
+    private async Task TogglePcAudioAsync()
+    {
+        if (_pcBusy) return;
+        _pcBusy = true;
+        Push();
+        _audio.PhoneName = PhoneName();
+        var r = _pcAudio ? await _audio.MoveToPhoneAsync() : await _audio.MoveToPcAsync();
+        _pcBusy = false;
+        if (r.Ok) _pcAudio = r.OnPc;
+        else Note("Call audio on this PC", r.Message);
+        Push();
     }
 
     /// <summary>A soft two-note glass chime, made here so nothing depends on Windows' sound scheme.</summary>
