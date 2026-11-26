@@ -74,6 +74,7 @@
     <div class="controls">
       <button class="ctl" id="c-mute" data-cmd="control" data-action="mute"><span class="cap"><svg class="ico"><use href="#i-mic-off"/></svg></span><small>Mute</small></button>
       <button class="ctl" id="c-speaker" data-cmd="control" data-action="speaker"><span class="cap"><svg class="ico"><use href="#i-speaker"/></svg></span><small>Speaker</small></button>
+      <button class="ctl" id="c-pc" data-cmd="pc-audio" title="Hear and talk through this PC (Bluetooth)"><span class="cap"><svg class="ico"><use href="#i-laptop"/></svg></span><small>On PC</small></button>
       <button class="ctl" id="c-hold" data-cmd="control" data-action="hold"><span class="cap"><svg class="ico"><use href="#i-pause"/></svg></span><small>Hold</small></button>
       <button class="ctl end" data-cmd="hangup" title="End the call"><span class="cap"><svg class="ico"><use href="#i-call-end"/></svg></span><small>End</small></button>
     </div>
@@ -85,7 +86,7 @@
 <script>
 "use strict";
 let call = { mode: "ringing", name: null, number: null, detail: null, outgoing: false, answered: false, startedAt: null,
-             waiting: null, heldCaller: null, muted: false, speaker: false, held: false };
+             waiting: null, heldCaller: null, muted: false, speaker: false, held: false, pcAudio: false, pcBusy: false };
 
 function clock(sec) {
   const s = Math.max(0, Math.floor(sec)), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, r = s % 60;
@@ -120,6 +121,9 @@ function render() {
     $("#c-mute").classList.toggle("on", call.muted);
     $("#c-speaker").classList.toggle("on", call.speaker);
     $("#c-hold").classList.toggle("on", call.held);
+    $("#c-pc").classList.toggle("on", call.pcAudio);
+    $("#c-pc").style.opacity = call.pcBusy ? ".5" : "";
+    $("#c-pc small").textContent = call.pcBusy ? "Moving…" : "On PC";
     if (call.waiting) $("#w-who").textContent = call.waiting.name || call.waiting.number || "Someone";
     tick();
   }

@@ -1,6 +1,8 @@
 package app.phonebridge
 
+import android.app.ActivityOptions
 import android.app.Notification
+import android.app.PendingIntent
 import android.app.RemoteInput
 import android.content.Intent
 import android.graphics.Bitmap
@@ -21,6 +23,8 @@ class NotifListener : NotificationListenerService() {
         private val SKIP_PACKAGES = setOf("android", "com.android.systemui")
         private val ANSWER_WORDS = listOf("answer", "accept")
         private val DECLINE_WORDS = listOf("decline", "reject", "hang up", "end call", "dismiss")
+        /** The dialer's speaker toggle (Samsung / Google dialer label it "Speaker", "Speaker off", "Handset"…). */
+        private val SPEAKER_WORDS = listOf("speaker", "handset", "earpiece")
     }
 
     private val lastSent = ConcurrentHashMap<String, String>()
@@ -143,13 +147,34 @@ class NotifListener : NotificationListenerService() {
         // A dialer that merges everything into one notification: any matching button will do, as long as nothing is waiting.
         if (action == null && !CallReporter.hasWaiting()) action = calls.firstNotNullOfOrNull { findCallAction(it.notification, words) }
         if (action == null) return false
-        return try {
-            action.actionIntent.send()
-            true
-        } catch (e: Exception) {
-            Log.w(TAG, "call button failed", e)
-            false
+        return send(action.actionIntent, "call button")
+    }
+
+    /** Presses the speaker toggle on the notification of the call you're on, if the dialer has one. */
+    fun pressSpeakerButton(): Boolean {
+        val calls = callNotifications()
+        val action = (calls.filter { !isIncoming(it.notification) } + calls).firstNotNullOfOrNull { findCallAction(it.notification, SPEAKER_WORDS) }
+        if (action == null) {
+            Log.d(TAG, "no speaker button; call notification buttons: " + calls.joinToString { c -> c.notification.actions.orEmpty().joinToString("|") { it.title ?: "" } })
+            return false
         }
+        return send(action.actionIntent, "speaker button")
+    }
+
+    /**
+     * Sends a dialer button's intent. Some dialers' buttons open their call screen or a service, which Android 14+ blocks
+     * from the background unless the sender opts in; a notification listener is allowed to.
+     */
+    private fun send(pi: PendingIntent, what: String): Boolean = try {
+        val opts = ActivityOptions.makeBasic().apply {
+            if (android.os.Build.VERSION.SDK_INT >= 34)
+                setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+        }
+        pi.send(this, 0, null, null, null, null, opts.toBundle())
+        true
+    } catch (e: Exception) {
+        Log.w(TAG, "$what failed", e)
+        false
     }
 
     private fun findCallAction(n: Notification, words: List<String>): Notification.Action? =
