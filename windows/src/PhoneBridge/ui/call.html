@@ -86,7 +86,7 @@
 <script>
 "use strict";
 let call = { mode: "ringing", name: null, number: null, detail: null, outgoing: false, answered: false, startedAt: null,
-             waiting: null, heldCaller: null, muted: false, speaker: false, held: false, pcAudio: false, pcBusy: false };
+             waiting: null, heldCaller: null, muted: false, speaker: false, held: false, pcAudio: false, pcBusy: false, canSpeaker: true };
 
 function clock(sec) {
   const s = Math.max(0, Math.floor(sec)), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, r = s % 60;
@@ -120,6 +120,7 @@ function render() {
     $("#a-timer .dot").style.background = call.held ? "var(--orange)" : "var(--green)";
     $("#c-mute").classList.toggle("on", call.muted);
     $("#c-speaker").classList.toggle("on", call.speaker);
+    $("#c-speaker").style.display = call.canSpeaker === false ? "none" : "";
     $("#c-hold").classList.toggle("on", call.held);
     $("#c-pc").classList.toggle("on", call.pcAudio);
     $("#c-pc").style.opacity = call.pcBusy ? ".5" : "";

@@ -101,7 +101,6 @@ object Calls {
 
     @Volatile private var held = false
     private var weMuted = false
-    private var weSpeaker = false
 
     private fun report(ctx: Context, note: String? = null) {
         val am = ctx.getSystemService(AudioManager::class.java)
@@ -116,42 +115,24 @@ object Calls {
     private fun speakerOn(am: AudioManager): Boolean =
         if (Build.VERSION.SDK_INT >= 31) am.communicationDevice?.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else am.isSpeakerphoneOn
 
-    /** Back to normal when the call is over, so a mute or speaker we set can't outlive it. */
-    @Suppress("DEPRECATION")
+    /** Back to normal when the call is over, so a mute we set can't outlive it. */
     private fun resetAfterCall(ctx: Context) {
         val am = ctx.getSystemService(AudioManager::class.java)
         if (weMuted) { am.isMicrophoneMute = false; weMuted = false }
-        if (weSpeaker) {
-            if (Build.VERSION.SDK_INT >= 31) am.clearCommunicationDevice()
-            am.isSpeakerphoneOn = false
-            weSpeaker = false
-        }
         held = false
     }
 
     /**
-     * Speaker: Android 12+ ignores AudioManager.setSpeakerphoneOn for a phone call that another app (the dialer) owns, so
-     * first press the dialer's own Speaker button on its call notification (the same thing as tapping it on the phone), and
-     * only if that isn't there or didn't change anything, ask the audio system to route the call to the loudspeaker. Each step
-     * is checked against the real route before reporting back, so the Mac's button never shows a state the phone isn't in.
+     * Speaker: only the dialer can move a phone call to the loudspeaker. Android ignores setSpeakerphoneOn and
+     * setCommunicationDevice from any other app (checked on a Galaxy M36, Android 16), and won't bind a non-system app's
+     * in-call service. So the computer's Speaker presses the dialer's own Speaker button on its call notification, which
+     * some dialers have (Google's) and Samsung's doesn't. The computer only shows Speaker when that button is there
+     * ("canSpeaker" in the call report).
      */
-    @Suppress("DEPRECATION")
     private fun toggleSpeaker(am: AudioManager): String? {
-        val before = speakerOn(am)
-        val want = !before
+        val want = !speakerOn(am)
         if (NotifListener.instance?.pressSpeakerButton() == true && waitFor { speakerOn(am) == want }) return null
-        if (Build.VERSION.SDK_INT >= 31) {
-            if (want) {
-                val spk = am.availableCommunicationDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
-                if (spk != null) am.setCommunicationDevice(spk)
-            } else {
-                am.clearCommunicationDevice()
-            }
-        }
-        am.isSpeakerphoneOn = want
-        weSpeaker = want
-        if (waitFor { speakerOn(am) == want }) return null
-        return "The phone didn't switch the speaker. Tap Speaker on the phone's call screen."
+        return "This phone only switches the speaker from its own call screen."
     }
 
     /** Waits up to ~1.2 s for the phone to settle (routes switch asynchronously). */
@@ -167,6 +148,7 @@ object Calls {
         Thread {
             val am = ctx.getSystemService(AudioManager::class.java)
             var note: String? = null
+            Log.d(TAG, "call_ctl $action")
             when (action) {
                 "mute" -> {
                     val want = !am.isMicrophoneMute
@@ -191,15 +173,16 @@ object Calls {
      */
     @Suppress("DEPRECATION")
     fun end(ctx: Context, waiting: Boolean = false) {
+        Log.d(TAG, "call_end waiting=$waiting state=${CallReporter.state()} hasWaiting=${CallReporter.hasWaiting()}")
         val ringingCall = waiting || CallReporter.state() == "ringing"
         val hasPerm = ctx.checkSelfPermission(android.Manifest.permission.ANSWER_PHONE_CALLS) == PackageManager.PERMISSION_GRANTED
         fun telecomEnd(): Boolean = hasPerm && try {
-            ctx.getSystemService(TelecomManager::class.java).endCall()
+            ctx.getSystemService(TelecomManager::class.java).endCall().also { Log.d(TAG, "TelecomManager.endCall -> $it") }
         } catch (e: SecurityException) {
             Log.w(TAG, "end call needs ANSWER_PHONE_CALLS", e); false
         }
         if (!ringingCall && !CallReporter.hasWaiting() && telecomEnd()) return
-        if (NotifListener.instance?.pressCallButton(answer = false, incoming = ringingCall) == true) return
+        if (NotifListener.instance?.pressCallButton(answer = false, incoming = ringingCall) == true) { Log.d(TAG, "pressed the dialer's end button"); return }
         if (CallReporter.hasWaiting() && !waiting) {
             Log.w(TAG, "can't tell which call to end without its button; not guessing")
             return
